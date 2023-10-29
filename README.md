@@ -24,7 +24,7 @@ After pairing the two devices all communication is done via webrtc with a peer-t
 With the secret key it can transfer the pairing information securely to the source device without leaking network information outside of the local network. Although i am not sure how valuable the information of a local network can be. The webrtc pairing is only limited to the local network, so public information is not in it. Technically the server has the public ip address while the website is open, but it stays only in memory on the server. The target device can not find out the public ip address of the source device. The website server uses the randomly generated keys to connect them.
 
 ## State of the project
-Currently i have only applied a website template. Added htmx and expressjs. And setup a [codesandbox development environment](https://codesandbox.io/p/github/XevErylux/webrtc-camera). Configured server and client side typescript in watch mode. You can tinker around with this project in your browser, but at the moment there is not much to see. I hope i can fill the true content shortly.
+Currently i have only applied a website template. Added htmx, expressjs and tailwindcss. And setup a [codesandbox development environment](https://codesandbox.io/p/github/XevErylux/webrtc-camera). Configured server and client side typescript in watch mode. You can tinker around with this project in your browser, but at the moment there is not much to see. I hope i can fill the true content shortly.
 
 ## License
 MIT

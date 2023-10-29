@@ -4,10 +4,11 @@
   "description": "Allows easy sharing of the camera from one to another device",
   "main": "./dist/index.js",
   "scripts": {
-    "start": "concurrently \"yarn watch:tsc\" \"yarn watch:server\" \"yarn watch:client\"",
+    "start": "concurrently \"yarn watch:tsc\" \"yarn watch:server\" \"yarn watch:client\" \"yarn watch:tailwind\"",
     "watch:tsc": "tsc --watch",
     "watch:server": "nodemon --watch dist ./dist/index.js",
     "watch:client": "mkdir -p ./wwwroot/dist/ && yarn watchify ./dist/client/index.js  --standalone Bundle -o ./wwwroot/dist/bundle.js -v",
+    "watch:tailwind": "tailwindcss -i ./src/input.css -o ./wwwroot/dist/output.css --watch",
     "build": "echo This is a static template, there is no bundler or bundling involved!"
   },
   "repository": {
@@ -31,6 +32,7 @@
     "@kitajs/ts-html-plugin": "^1.3.0",
     "express": "^4.18.2",
     "nodemon": "^3.0.1",
+    "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2"
   },
   "devDependencies": {
