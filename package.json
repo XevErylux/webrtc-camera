@@ -7,7 +7,7 @@
     "start": "concurrently \"yarn watch:tsc\" \"yarn watch:server\" \"yarn watch:client\"",
     "watch:tsc": "tsc --watch",
     "watch:server": "nodemon --watch dist ./dist/index.js",
-    "watch:client": "yarn watchify ./dist/client/index.js  --standalone Bundle -o ./wwwroot/dist/bundle.js -v",
+    "watch:client": "mkdir -p ./wwwroot/dist/ && yarn watchify ./dist/client/index.js  --standalone Bundle -o ./wwwroot/dist/bundle.js -v",
     "build": "echo This is a static template, there is no bundler or bundling involved!"
   },
   "repository": {
