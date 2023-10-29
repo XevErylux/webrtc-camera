@@ -2,7 +2,7 @@
   "name": "templateforv2-static",
   "version": "1.0.0",
   "description": "Allows easy sharing of the camera from one to another device",
-  "main": "index.html",
+  "main": "./dist/index.js",
   "scripts": {
     "start": "concurrently \"yarn watch:tsc\" \"yarn watch:server\" \"yarn watch:client\"",
     "watch:tsc": "tsc --watch",
