@@ -19,12 +19,15 @@ const BaseHTML = ({ children }) => (html_1.default.createElement(html_1.default.
             html_1.default.createElement("title", null, "Experiment"),
             html_1.default.createElement("script", { src: "https://unpkg.com/htmx.org@1.9.6", integrity: "sha384-FhXw7b6AlE/jyjlZH5iHa/tTe9EpJ1Y55RjcgPbjeWMskSxZt1v9qkxLJWNJaGni", crossorigin: "anonymous" }),
             html_1.default.createElement("script", { src: "https://unpkg.com/htmx-serverless@0.1.7", integrity: "sha384-Ildyot+Nr+qIy9JnM+AOt4meXxl3ep0TmkqNOSvdUzA5GlgIALOx+RtVJT6Oq//H", crossorigin: "anonymous" }),
+            html_1.default.createElement("link", { href: "./styles.css", rel: "stylesheet" }),
             html_1.default.createElement("script", { src: "./dist/bundle.js" }),
             html_1.default.createElement("script", null, "app = window.Bundle.app; console.log(app.addDiv());")),
         html_1.default.createElement("body", null, children))));
 app.get("/", (req, res) => {
     res.send(html_1.default.createElement(BaseHTML, null,
-        html_1.default.createElement("button", { class: "btn", "hx-get": "/connections", "hx-target": "this", "hx-swap": "outerHTML" }, "Connect"),
+        html_1.default.createElement("button", { class: "mdc-button", "hx-get": "/connections", "hx-target": "this", "hx-swap": "outerHTML" },
+            html_1.default.createElement("div", { class: "mdc-button__ripple" }),
+            html_1.default.createElement("span", { class: "mdc-button__label" }, "Connect")),
         html_1.default.createElement("button", { class: "btn", "hx-get": "js:app.addDiv", "hx-target": "this", "hx-ext": "serverless", "hx-swap": "outerHTML" }, "Connect")));
 });
 app.use("/users", users_1.default);

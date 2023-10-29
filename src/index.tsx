@@ -26,6 +26,7 @@ const BaseHTML = ({ children }: { children?: Children }) => (
           integrity="sha384-Ildyot+Nr+qIy9JnM+AOt4meXxl3ep0TmkqNOSvdUzA5GlgIALOx+RtVJT6Oq//H"
           crossorigin="anonymous"
         ></script>
+        <link href="./styles.css" rel="stylesheet" />
         <script src="./dist/bundle.js" />
         <script>app = window.Bundle.app; console.log(app.addDiv());</script>
       </head>
@@ -38,12 +39,13 @@ app.get("/", (req, res) => {
   res.send(
     <BaseHTML>
       <button
-        class="btn"
+        class="mdc-button"
         hx-get="/connections"
         hx-target="this"
         hx-swap="outerHTML"
       >
-        Connect
+        <div class="mdc-button__ripple"></div>
+        <span class="mdc-button__label">Connect</span>
       </button>
       <button
         class="btn"
