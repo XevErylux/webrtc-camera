@@ -1,5 +1,5 @@
 {
-  "name": "templateforv2-static",
+  "name": "webrtc-camera",
   "version": "1.0.0",
   "description": "Allows easy sharing of the camera from one to another device",
   "main": "./dist/index.js",
