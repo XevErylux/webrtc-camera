@@ -26,7 +26,6 @@ export const BaseHTML = ({ children }: { children?: Children }) => (
         />
         <link href="./styles.css" rel="stylesheet" />
         <script src="./dist/bundle.js" />
-        <script>app = window.Bundle.app; console.log(app.addDiv());</script>
       </head>
       <body>{children}</body>
     </html>

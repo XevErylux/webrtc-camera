@@ -11,15 +11,16 @@ const port = 3000;
 app.get("/", (req, res) => {
   res.send(
     <BaseHTML>
-      <main
-        class="container"
-        aria-busy="true"
-        hx-get="js:app.init"
-        hx-target="this"
-        hx-ext="serverless"
-        hx-swap="outerHTML"
-        hx-trigger="load"
-      ></main>
+      <main class="container">
+        <div
+          aria-busy="true"
+          hx-get="js:app.init"
+          hx-target="this"
+          hx-ext="serverless"
+          hx-swap="outerHTML"
+          hx-trigger="load"
+        />
+      </main>
     </BaseHTML>,
   );
 });
