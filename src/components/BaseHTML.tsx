@@ -25,6 +25,7 @@ export const BaseHTML = ({ children }: { children?: Children }) => (
           href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"
         />
         <link href="./styles.css" rel="stylesheet" />
+        <script src="./dist/vendor.js" />
         <script src="./dist/bundle.js" />
       </head>
       <body>{children}</body>

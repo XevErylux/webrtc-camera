@@ -7,7 +7,9 @@
     "start": "concurrently \"yarn watch:tsc\" \"yarn watch:server\" \"yarn watch:client\" \"yarn watch:tailwind\"",
     "watch:tsc": "tsc --watch",
     "watch:server": "nodemon --watch dist ./dist/index.js",
-    "watch:client": "mkdir -p ./wwwroot/dist/ && yarn watchify ./dist/client/index.js  --standalone Bundle -o ./wwwroot/dist/bundle.js -v",
+    "watch:client:vendor": "yarn watchify -o ./wwwroot/dist/vendor.js -v -r sodium-plus -r sodium-native",
+    "watch:client:bundle": "yarn watchify ./dist/client/index.js -o ./wwwroot/dist/bundle.js -v -x=sodium-plus -x=sodium-native",
+    "watch:client": "mkdir -p ./wwwroot/dist/ && concurrently \"yarn run watch:client:vendor\" \"yarn run watch:client:bundle\"",
     "watch:tailwind": "tailwindcss -i ./src/input.css -o ./wwwroot/dist/output.css --watch",
     "build": "echo This is a static template, there is no bundler or bundling involved!"
   },
