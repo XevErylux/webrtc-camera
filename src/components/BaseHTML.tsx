@@ -19,6 +19,7 @@ export const BaseHTML = ({ children }: { children?: Children }) => (
           integrity="sha384-Ildyot+Nr+qIy9JnM+AOt4meXxl3ep0TmkqNOSvdUzA5GlgIALOx+RtVJT6Oq//H"
           crossorigin="anonymous"
         ></script>
+        <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
         {/*<link href="./dist/output.css" rel="stylesheet" />*/}
         <link
           rel="stylesheet"

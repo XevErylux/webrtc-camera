@@ -1,7 +1,7 @@
-import Html from "@kitajs/html";
+import Html, { Children } from "@kitajs/html";
 import { Button } from "../components/Button";
 import { SodiumPlus, X25519PublicKey, X25519SecretKey } from "sodium-plus";
-import { syncified, syncify } from "./syncify";
+import { CustomWait, syncify } from "./syncify";
 
 interface Settings {
   secretKey: string;
@@ -92,7 +92,7 @@ export const App = function () {
     );
   }
 
-  async function initSender(): Promise<string> {
+  async function initSender(customWait: CustomWait): Promise<string> {
     if (!keyPair) {
       keyPair = await loadKeyPairFromLocalStorage();
     }
@@ -102,14 +102,44 @@ export const App = function () {
       storeKeyPairToLocalStorage(keyPair);
     }
 
+    customWait(
+      String(
+        <div>
+          <h1>WebRTC Camera</h1>
+          <div aria-busy="true">Checking permisson to the camera</div>
+          <br />
+          Please allow access, if not already done.
+        </div>,
+      ),
+    );
+    const tempStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+    });
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    customWait(
+      String(
+        <div>
+          <h1>WebRTC Camera</h1>
+          <div aria-busy="true" />
+        </div>,
+      ),
+    );
+
     return String(
-      <>
+      <div
+        hx-ext="sse"
+        sse-connect={`/connections/sender-events/${keyPair.publicKey.toString(
+          "hex",
+        )}`}
+      >
         <h1>WebRTC Camera</h1>
         <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
         <br />
         <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
+        <br />
+        Receiver Count: <span sse-swap="receiver-count">?</span>
         <br />
         <Button hx-get="/connections" hx-target="this" hx-swap="outerHTML">
           From Server
@@ -123,14 +153,14 @@ export const App = function () {
           From Client
         </Button>
         Some text below buttons
-      </>,
+      </div>,
     );
   }
 
   return {
     call: call,
-    init: syncify(async () => {
-      return (await initReceiver()) ?? (await initSender());
+    init: syncify(async (customWait: CustomWait) => {
+      return (await initReceiver()) ?? (await initSender(customWait));
     }),
     addDiv: () => (
       <div>
