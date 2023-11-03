@@ -4,7 +4,7 @@ import { Children } from "@kitajs/html";
 export const Button = ({
   children,
   ...props
-}: { children?: Children } & JSX.HtmlButtonTag) => (
+}: Omit<JSX.HtmlButtonTag, "children"> & { children?: Children }) => (
   <button {...props} class={props.class}>
     {children}
   </button>

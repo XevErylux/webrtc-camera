@@ -50,15 +50,19 @@ async function generateKeyPair(): Promise<KeyPair> {
   return { secretKey, publicKey };
 }
 
+async function reconstructKeyPairFromSecret(secretKey: X25519SecretKey) {
+  const sodium = await SodiumPlus.auto();
+  const publicKey = await sodium.crypto_box_publickey_from_secretkey(secretKey);
+  return { publicKey, secretKey };
+}
+
 async function loadKeyPairFromLocalStorage(): Promise<KeyPair | undefined> {
   const secretKeyText = getConfig("secretKey");
   if (!secretKeyText) return;
 
-  const secretKey = X25519SecretKey.from(secretKeyText, "hex");
-
-  const sodium = await SodiumPlus.auto();
-  const publicKey = await sodium.crypto_box_publickey_from_secretkey(secretKey);
-  return { publicKey, secretKey };
+  return await reconstructKeyPairFromSecret(
+    X25519SecretKey.from(secretKeyText, "hex"),
+  );
 }
 
 function storeKeyPairToLocalStorage(keyPair: KeyPair) {
@@ -73,9 +77,13 @@ export const App = function () {
 
   let keyPair: KeyPair | undefined;
 
-  function initReceiver(): string | undefined {
-    const key = getFromHash("key");
-    if (!key) return;
+  async function initReceiver(): Promise<string | undefined> {
+    const secretKeyText = getFromHash("key");
+    if (!secretKeyText) return;
+
+    keyPair = await reconstructKeyPairFromSecret(
+      X25519SecretKey.from(secretKeyText, "hex"),
+    );
 
     // TODO: If we have a secret key, we must construct
     // the public key, fetch the offer and answer it.
@@ -97,9 +105,11 @@ export const App = function () {
     return String(
       <>
         <h1>WebRTC Camera</h1>
-        PublicKey: {keyPair.publicKey.toString("hex")}
+        <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
-        SecretKey: {keyPair.secretKey.toString("hex")}
+        <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
+        <br />
+        <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
         <br />
         <Button hx-get="/connections" hx-target="this" hx-swap="outerHTML">
           From Server
@@ -120,8 +130,12 @@ export const App = function () {
   return {
     call: call,
     init: syncify(async () => {
-      return initReceiver() ?? (await initSender());
+      return (await initReceiver()) ?? (await initSender());
     }),
-    addDiv: () => <div>Inserted by {call("addDiv")}</div>,
+    addDiv: () => (
+      <div>
+        Inserted by <span safe>{call("addDiv")}</span>
+      </div>
+    ),
   };
 };
