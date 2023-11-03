@@ -31,12 +31,21 @@ export function syncify<T extends (...a: any) => JSX.Element>(
     );
     syncified[id] = retry;
 
-    handlerResult.then((value) => {
-      syncified[id] = function () {
-        delete syncified[id];
-        return value;
-      };
-    }, console.error);
+    handlerResult.then(
+      (value) => {
+        syncified[id] = function () {
+          delete syncified[id];
+          return value;
+        };
+      },
+      (err) => {
+        console.error(err);
+        syncified[id] = function () {
+          delete syncified[id];
+          return String(<div safe>{err}</div>);
+        };
+      },
+    );
 
     return retry;
   };
