@@ -84,7 +84,7 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
 
   const publicKey = req.params.publicKey;
   console.log(
-    `client ${publicKey}:${req.socket.remotePort} established connection`,
+    `sender client ${publicKey}:${req.socket.remotePort} established connection`,
   );
 
   const senderState = SenderState.get(publicKey);
@@ -93,7 +93,7 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   // If client closes connection, stop sending events
   res.on("close", () => {
     console.log(
-      `client ${publicKey}:${req.socket.remotePort} dropped connection`,
+      `sender client ${publicKey}:${req.socket.remotePort} dropped connection`,
     );
     res.end();
     senderEvents.free();

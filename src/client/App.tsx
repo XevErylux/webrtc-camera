@@ -108,6 +108,8 @@ export const App = function () {
     );
   }
 
+  let videoDevices: MediaDeviceInfo[] = [];
+
   async function senderConnectToWebcam(customWait: CustomWait) {
     if (!keyPair) {
       keyPair = await loadKeyPairFromLocalStorage();
@@ -125,11 +127,44 @@ export const App = function () {
         Please allow access, if not already done.
       </>,
     );
+
+    /* get user's permission to muck around with video devices */
     const tempStream = await navigator.mediaDevices.getUserMedia({
       video: true,
     });
     const devices = await navigator.mediaDevices.enumerateDevices();
     customWait(String(<div aria-busy="true" />));
+
+    videoDevices = devices.filter((x) => x.kind === "videoinput");
+    const videoInputSelection: Children = [
+      <details role="list">
+        <summary
+          aria-haspopup="listbox"
+          id="videoInputSelection"
+          data-index={0}
+          safe
+        >
+          {videoDevices[0]?.label}
+        </summary>
+        <ul role="listbox">
+          {videoDevices.map((device, index) => (
+            <li>
+              <a
+                href="#"
+                onclick={`${call("selectVideoDevice")}(${index});return true;`}
+                safe
+              >
+                {device.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>,
+    ];
+
+    /* close the temp stream */
+    const tracks = tempStream.getTracks();
+    if (tracks) for (let t = 0; t < tracks.length; t++) tracks[t].stop();
 
     return String(
       <div
@@ -138,6 +173,8 @@ export const App = function () {
           "hex",
         )}`}
       >
+        <span>Video Input Device</span>
+        {videoInputSelection}
         <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
@@ -162,12 +199,21 @@ export const App = function () {
     );
   }
 
+  function selectVideoDevice(index: number) {
+    const videoInputSelection = document.getElementById("videoInputSelection");
+    if (videoInputSelection) {
+      videoInputSelection.dataset.index = `${index}`;
+      videoInputSelection.innerText = videoDevices[index]?.label ?? "";
+    }
+  }
+
   return {
     call: call,
     init: syncify(async (customWait: CustomWait) => {
       return (await initReceiver()) ?? (await initSender(customWait));
     }),
     senderConnectToWebcam: syncify(senderConnectToWebcam),
+    selectVideoDevice: selectVideoDevice,
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>
