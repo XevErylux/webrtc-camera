@@ -93,6 +93,22 @@ export const App = function () {
   }
 
   async function initSender(customWait: CustomWait): Promise<string> {
+    return String(
+      <div>
+        <h1>WebRTC Camera</h1>
+        <div
+          aria-busy="true"
+          hx-get="js:app.senderConnectToWebcam"
+          hx-target="this"
+          hx-ext="serverless"
+          hx-swap="outerHTML"
+          hx-trigger="load"
+        ></div>
+      </div>,
+    );
+  }
+
+  async function senderConnectToWebcam(customWait: CustomWait) {
     if (!keyPair) {
       keyPair = await loadKeyPairFromLocalStorage();
     }
@@ -103,27 +119,17 @@ export const App = function () {
     }
 
     customWait(
-      String(
-        <div>
-          <h1>WebRTC Camera</h1>
-          <div aria-busy="true">Checking permisson to the camera</div>
-          <br />
-          Please allow access, if not already done.
-        </div>,
-      ),
+      <>
+        <div aria-busy="true">Checking permisson to the camera</div>
+        <br />
+        Please allow access, if not already done.
+      </>,
     );
     const tempStream = await navigator.mediaDevices.getUserMedia({
       video: true,
     });
     const devices = await navigator.mediaDevices.enumerateDevices();
-    customWait(
-      String(
-        <div>
-          <h1>WebRTC Camera</h1>
-          <div aria-busy="true" />
-        </div>,
-      ),
-    );
+    customWait(String(<div aria-busy="true" />));
 
     return String(
       <div
@@ -132,7 +138,6 @@ export const App = function () {
           "hex",
         )}`}
       >
-        <h1>WebRTC Camera</h1>
         <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
@@ -162,6 +167,7 @@ export const App = function () {
     init: syncify(async (customWait: CustomWait) => {
       return (await initReceiver()) ?? (await initSender(customWait));
     }),
+    senderConnectToWebcam: syncify(senderConnectToWebcam),
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>

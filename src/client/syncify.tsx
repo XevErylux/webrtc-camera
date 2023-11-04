@@ -4,13 +4,21 @@ export type SyncifiedHandler<T extends (...a: any) => JSX.Element> = (
   ...a: Parameters<T>
 ) => string;
 
-export type SyncifiedHandlerEnds = Record<number, string | (() => string)>;
+type SyncifiedHandlerEnd = {
+  readonly refresh: () => string;
+  completed: (() => string) | string;
+};
+
+export type SyncifiedHandlerEnds = Record<number, SyncifiedHandlerEnd>;
 export const syncified: SyncifiedHandlerEnds = {};
 const notifies: Record<number, HTMLDivElement | (() => void)> = {};
 
 let idCounter = 1;
 
-/// @ts-ignore
+declare const htmx: {
+  on: (eventName: string, handler: (evt: Event) => void) => void;
+};
+
 htmx.on("htmx:load", function (evt: Event) {
   if ("detail" in evt) {
     const detail = evt.detail;
@@ -38,49 +46,19 @@ export function syncify<
 >(handler: T): (...a: Tail<Parameters<T>>) => string {
   const begin = function (...args: Tail<Parameters<T>>): string {
     let customRetryContent: Children | undefined;
-    let memoizedRetryText: string | undefined;
-    const retry = (id: number) => {
-      debugger;
-      if (memoizedRetryText) return memoizedRetryText;
-      return (memoizedRetryText = String(
-        <div
-          aria-busy={customRetryContent === undefined}
-          id={`syncify${id}`}
-          hx-get={`js:syncified[${id}]`}
-          hx-target="this"
-          hx-ext="serverless"
-          hx-swap="outerHTML"
-          hx-trigger="refresh"
-        >
-          {customRetryContent}
-        </div>,
-      ));
-    };
-
     let idMaybe: number | undefined;
-
-    function completed() {
-      if (!idMaybe) return;
-
-      const div = notifies[idMaybe];
-      if (div instanceof HTMLDivElement) {
-        delete notifies[idMaybe];
-        div.dispatchEvent(new Event("syncify:completed"));
-      } else {
-        notifies[idMaybe] = completed;
-      }
-    }
 
     function refresh() {
       if (!idMaybe) return;
 
+      const event = "refresh";
       const div = notifies[idMaybe];
       if (div instanceof HTMLDivElement) {
         const innerDiv = div.querySelector(
-          "div > div[hx-trigger='syncify:refresh']",
+          `div > div[hx-trigger='syncify:${event}']`,
         );
         if (innerDiv) {
-          innerDiv.dispatchEvent(new Event("syncify:refresh"));
+          innerDiv.dispatchEvent(new Event(`syncify:${event}`));
         }
       } else {
         notifies[idMaybe] = refresh;
@@ -88,7 +66,6 @@ export function syncify<
     }
 
     const customWait = function (content?: Children) {
-      memoizedRetryText = undefined;
       customRetryContent = content;
       refresh();
     };
@@ -101,45 +78,57 @@ export function syncify<
     const id = idCounter++;
     idMaybe = id;
 
+    const end: SyncifiedHandlerEnd = {
+      refresh: () => String(<>{customRetryContent}</>),
+      completed: "Error: Completed was not filled in time!",
+    };
+    syncified[id] = end;
+
+    function completed() {
+      const event = "completed";
+      const div = notifies[id];
+      if (div instanceof HTMLDivElement) {
+        div.dispatchEvent(new Event(`syncify:${event}`));
+      } else {
+        notifies[id] = completed;
+      }
+    }
+
     handlerResult.then(
       (value) => {
-        syncified[id] = function () {
+        end.completed = function () {
           delete syncified[id];
+          delete notifies[id];
           return value;
         };
         completed();
       },
       (err) => {
         console.error(err);
-        syncified[id] = function () {
+        end.completed = function () {
           delete syncified[id];
+          delete notifies[id];
           return String(<div safe>{err}</div>);
         };
         completed();
       },
     );
 
-    const alreadyCompleted = syncified[id];
-    if (alreadyCompleted) {
-      return typeof alreadyCompleted === "string"
-        ? alreadyCompleted
-        : alreadyCompleted();
+    if (typeof end.completed === "function") {
+      return end.completed();
     }
-
-    syncified[id] = () => String(<>{customRetryContent}</>);
 
     return String(
       <div
-        aria-busy={customRetryContent === undefined}
         id={`syncify${id}`}
-        hx-get={`js:syncified[${id}]`}
+        hx-get={`js:syncified[${id}].completed`}
         hx-target="this"
         hx-ext="serverless"
         hx-swap="outerHTML"
         hx-trigger="syncify:completed"
       >
         <div
-          hx-get={`js:syncified[${id}]`}
+          hx-get={`js:syncified[${id}].refresh`}
           hx-target="this"
           hx-ext="serverless"
           hx-swap="outerHTML"
