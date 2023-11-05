@@ -11,7 +11,11 @@ interface VideoInputDeviceSelection {
 interface Settings {
   secretKey: string;
   videoInputDevice: VideoInputDeviceSelection[];
+  videoBitrate: number;
 }
+
+const minVideoBitrateValue = 1;
+const maxVideoBitrateValue = 16;
 
 function setConfig<T extends keyof Settings>(
   key: T,
@@ -242,6 +246,34 @@ export const App = function () {
     const tracks = tempStream.getTracks();
     if (tracks) for (let t = 0; t < tracks.length; t++) tracks[t].stop();
 
+    const initialVideoBitrate = getConfig("videoBitrate", 12);
+    const videoBitrateSelection: Children = [
+      // {/*style={{ paddingLeft: "0.5rem", paddingRight: "0.5rem" }}*/}
+      <nav class="container">
+        <ul>
+          <button
+            id="videoBitrateMinus"
+            onclick={`${call("increaseVideoBitrate")}();return true;`}
+            disabled={initialVideoBitrate <= minVideoBitrateValue}
+          >
+            <span class="square">-</span>
+          </button>
+        </ul>
+        <ul>
+          <span id="videoBitrateValue">{initialVideoBitrate}</span> MBit/s
+        </ul>
+        <ul>
+          <button
+            id="videoBitratePlus"
+            onclick={`${call("decreaseVideoBitrate")}();return true;`}
+            disabled={initialVideoBitrate >= maxVideoBitrateValue}
+          >
+            <span class="square">+</span>
+          </button>
+        </ul>
+      </nav>,
+    ];
+
     return String(
       <div
         hx-ext="sse"
@@ -251,6 +283,8 @@ export const App = function () {
       >
         <span>Video Input Device</span>
         {videoInputSelection}
+        <span>Video Bitrate</span>
+        {videoBitrateSelection}
         <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
@@ -285,6 +319,36 @@ export const App = function () {
     }
   }
 
+  function changeVideoBitrate(delta: number) {
+    const videoBitrateMinus = document.getElementById(
+      "videoBitrateMinus",
+    ) as HTMLButtonElement | null;
+    const videoBitrateValue = document.getElementById(
+      "videoBitrateValue",
+    ) as HTMLSpanElement | null;
+    const videoBitratePlus = document.getElementById(
+      "videoBitratePlus",
+    ) as HTMLButtonElement | null;
+    if (videoBitrateMinus && videoBitrateValue && videoBitratePlus) {
+      const currentValue = parseFloat(videoBitrateValue.innerText);
+      const newValue = Math.min(
+        maxVideoBitrateValue,
+        Math.max(minVideoBitrateValue, currentValue + delta),
+      );
+      videoBitrateValue.innerText = `${newValue}`;
+      videoBitrateMinus.disabled = newValue <= minVideoBitrateValue;
+      videoBitratePlus.disabled = newValue >= maxVideoBitrateValue;
+      setConfig("videoBitrate", newValue);
+    }
+  }
+
+  function increaseVideoBitrate() {
+    changeVideoBitrate(-2);
+  }
+  function decreaseVideoBitrate() {
+    changeVideoBitrate(2);
+  }
+
   return {
     call: call,
     init: syncify(async (customWait: CustomWait) => {
@@ -292,6 +356,8 @@ export const App = function () {
     }),
     senderConnectToWebcam: syncify(senderConnectToWebcam),
     selectVideoDevice: selectVideoDevice,
+    increaseVideoBitrate: increaseVideoBitrate,
+    decreaseVideoBitrate: decreaseVideoBitrate,
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>

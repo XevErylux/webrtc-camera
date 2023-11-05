@@ -81,6 +81,7 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
+  res.write(":\n\n");
 
   const publicKey = req.params.publicKey;
   console.log(
@@ -90,6 +91,8 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   const senderState = SenderState.get(publicKey);
   const senderEvents = senderState.openListener(res);
 
+  let keepAliveTimeout: NodeJS.Timeout;
+
   // If client closes connection, stop sending events
   res.on("close", () => {
     console.log(
@@ -97,7 +100,20 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
     );
     res.end();
     senderEvents.free();
+    clearTimeout(keepAliveTimeout);
   });
+
+  let keepAliveMS = 60 * 1000;
+
+  function keepAlive() {
+    // SSE comment for keep alive. Chrome times out after two minutes.
+    if (!res.closed) {
+      res.write(":\n\n");
+      keepAliveTimeout = setTimeout(keepAlive, keepAliveMS);
+    }
+  }
+
+  keepAliveTimeout = setTimeout(keepAlive, keepAliveMS);
 });
 
 export default router;
