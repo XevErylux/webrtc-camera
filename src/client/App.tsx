@@ -3,9 +3,14 @@ import { Button } from "../components/Button";
 import { SodiumPlus, X25519PublicKey, X25519SecretKey } from "sodium-plus";
 import { CustomWait, syncify } from "./syncify";
 
+interface VideoInputDeviceSelection {
+  label: string;
+  autoSelected: boolean;
+}
+
 interface Settings {
   secretKey: string;
-  test: number;
+  videoInputDevice: VideoInputDeviceSelection[];
 }
 
 function setConfig<T extends keyof Settings>(
@@ -16,10 +21,18 @@ function setConfig<T extends keyof Settings>(
 }
 function getConfig<T extends keyof Settings>(
   key: T,
+  defaultValue: Settings[typeof key],
+): Settings[typeof key];
+function getConfig<T extends keyof Settings>(
+  key: T,
+): Settings[typeof key] | null;
+function getConfig<T extends keyof Settings>(
+  key: T,
+  defaultValue: Settings[typeof key] | null = null,
 ): Settings[typeof key] | null {
   const stringified = localStorage.getItem(key);
-  if (typeof stringified !== "string") return null;
-  return JSON.parse(stringified) as Settings[typeof key] | null;
+  if (typeof stringified !== "string") return defaultValue;
+  return JSON.parse(stringified) as Settings[typeof key];
 }
 
 function getFromHash(key: string): string | undefined {
@@ -68,6 +81,68 @@ async function loadKeyPairFromLocalStorage(): Promise<KeyPair | undefined> {
 function storeKeyPairToLocalStorage(keyPair: KeyPair) {
   const secretKeyText = keyPair.secretKey.toString("hex");
   setConfig("secretKey", secretKeyText);
+}
+
+function initialVideoDevice(videoDevices: MediaDeviceInfo[]) {
+  const videoInputDeviceConfig = getConfig("videoInputDevice", []);
+  while (true) {
+    const invalidIndex = videoInputDeviceConfig.findIndex(
+      (x) => typeof x.label !== "string" || typeof x.autoSelected !== "boolean",
+    );
+    if (invalidIndex < 0) break;
+    videoInputDeviceConfig.splice(invalidIndex, 1);
+  }
+  const initialSelection = (function () {
+    const prefiltered = videoInputDeviceConfig.flatMap((config, index) => {
+      const videoDevice = videoDevices.find(
+        (videoDevice) => videoDevice.label == config.label,
+      );
+      if (!videoDevice) return [];
+      return [{ index, label: videoDevice.label, auto: config.autoSelected }];
+    });
+    const first: MediaDeviceInfo | undefined = videoDevices[0];
+    return (
+      prefiltered.find((x) => !x.auto) ??
+      prefiltered.find((x) => x.auto) ??
+      (first
+        ? {
+            index: 0,
+            auto: true,
+            label: first.label,
+          }
+        : undefined)
+    );
+  })();
+  if (
+    initialSelection?.auto &&
+    videoInputDeviceConfig.findIndex(
+      (x) => x.label === initialSelection.label,
+    ) === -1
+  ) {
+    videoInputDeviceConfig.push({
+      label: initialSelection.label,
+      autoSelected: true,
+    });
+    setConfig("videoInputDevice", videoInputDeviceConfig);
+  }
+  return initialSelection;
+}
+
+function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
+  if (videoDevice) {
+    const videoInputDeviceConfig = getConfig("videoInputDevice", []);
+    const index = videoInputDeviceConfig.findIndex(
+      (x) => x.label === videoDevice.label,
+    );
+    if (index >= 0) {
+      videoInputDeviceConfig.splice(index, 1);
+    }
+    videoInputDeviceConfig.unshift({
+      label: videoDevice.label,
+      autoSelected: false,
+    });
+    setConfig("videoInputDevice", videoInputDeviceConfig);
+  }
 }
 
 export const App = function () {
@@ -136,15 +211,17 @@ export const App = function () {
     customWait(String(<div aria-busy="true" />));
 
     videoDevices = devices.filter((x) => x.kind === "videoinput");
+    const initialSelection = initialVideoDevice(videoDevices);
+
     const videoInputSelection: Children = [
       <details role="list">
         <summary
           aria-haspopup="listbox"
           id="videoInputSelection"
-          data-index={0}
+          data-index={initialSelection?.index}
           safe
         >
-          {videoDevices[0]?.label}
+          {initialSelection?.label}
         </summary>
         <ul role="listbox">
           {videoDevices.map((device, index) => (
@@ -152,9 +229,8 @@ export const App = function () {
               <a
                 href="#"
                 onclick={`${call("selectVideoDevice")}(${index});return true;`}
-                safe
               >
-                {device.label}
+                <span safe>{device.label}</span>
               </a>
             </li>
           ))}
@@ -204,6 +280,8 @@ export const App = function () {
     if (videoInputSelection) {
       videoInputSelection.dataset.index = `${index}`;
       videoInputSelection.innerText = videoDevices[index]?.label ?? "";
+
+      changeVideoDevice(videoDevices[index] ?? undefined);
     }
   }
 
