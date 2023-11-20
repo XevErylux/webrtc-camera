@@ -1,5 +1,3 @@
-import { KeyPair } from "../types/KeyPair";
-
 export interface VideoInputDeviceSelection {
   label: string;
   autoSelected: boolean;
@@ -35,4 +33,3 @@ export function getConfig<T extends keyof Settings>(
   if (typeof stringified !== "string") return defaultValue;
   return JSON.parse(stringified) as Settings[typeof key];
 }
-

@@ -90,12 +90,34 @@ function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
       autoSelected: false,
     });
     setConfig("videoInputDevice", videoInputDeviceConfig);
+    return index !== 0;
   }
+  return false;
+}
+
+function getMediaStream(videoDevice: MediaDeviceInfo | null) {
+  if (!videoDevice) return null;
+
+  /* open the device you want */
+  const constraints = {
+    audio: true,
+    video: {
+      deviceId: videoDevice.deviceId,
+      aspectRatio: 1920 / 1080,
+      width: 1920,
+      height: 1080,
+    },
+  };
+  const stream = navigator.mediaDevices.getUserMedia(constraints);
+  return stream;
 }
 
 export const App = function () {
-  function call(name: keyof ReturnType<typeof App>): string {
-    return `js:app.${name}`;
+  function call(
+    name: keyof ReturnType<typeof App>,
+    withJsPrefix: boolean = true,
+  ): string {
+    return withJsPrefix ? `js:app.${name}` : `app.${name}`;
   }
 
   let keyPair: KeyPair | undefined;
@@ -132,6 +154,18 @@ export const App = function () {
   }
 
   let videoDevices: MediaDeviceInfo[] = [];
+  var videoMediaStream: MediaStream | null = null;
+
+  function findCurrentMediaDeviceInfo() {
+    const videoInputDeviceConfig = getConfig("videoInputDevice", [])[0];
+    if (!videoInputDeviceConfig) return;
+
+    const videoDevice = videoDevices.find(
+      (x) =>
+        x.kind === "videoinput" && x.label === videoInputDeviceConfig.label,
+    );
+    return videoDevice;
+  }
 
   async function senderConnectToWebcam(customWait: CustomWait) {
     if (!keyPair) {
@@ -224,6 +258,7 @@ export const App = function () {
         sse-connect={`/connections/sender-events/${keyPair.publicKey.toString(
           "hex",
         )}`}
+        hx-on={`htmx:load: ${call("updateStreamAndPreview", false)}()`}
       >
         <span>Video Input Device</span>
         {videoInputSelection}
@@ -234,6 +269,8 @@ export const App = function () {
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
         <br />
         <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
+        <br />
+        <div id="video-preview-container" />
         <br />
         Receiver Count: <span sse-swap="receiver-count">?</span>
         <br />
@@ -253,13 +290,60 @@ export const App = function () {
     );
   }
 
+  function updateVideoDevicePreview() {
+    const videoPreviewContainer = document.getElementById(
+      "video-preview-container",
+    );
+    if (!videoPreviewContainer) return;
+    let video =
+      videoPreviewContainer.firstElementChild as HTMLVideoElement | null;
+    if (!video) {
+      video = (function () {
+        let video = document.createElement("video");
+        video.width = 320;
+        video.height = (320 * 9) / 16;
+        video.muted = true;
+        video.onclick = function () {
+          try {
+            if (document.fullscreenElement === video) {
+              document.exitFullscreen();
+            } else {
+              video.requestFullscreen();
+            }
+          } catch {}
+        };
+        videoPreviewContainer.appendChild(video);
+        return video;
+      })();
+    }
+
+    video.srcObject = videoMediaStream;
+    video.play();
+  }
+
+  function updateStreamAndPreview() {
+    (async function () {
+      try {
+        console.log("hx-on - afterSettle");
+        const deviceInfo = findCurrentMediaDeviceInfo();
+        videoMediaStream =
+          (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
+        updateVideoDevicePreview();
+      } catch (e) {
+        console.error("updateStreamAndPreview failed", e);
+      }
+    })();
+  }
+
   function selectVideoDevice(index: number) {
     const videoInputSelection = document.getElementById("videoInputSelection");
     if (videoInputSelection) {
       videoInputSelection.dataset.index = `${index}`;
       videoInputSelection.innerText = videoDevices[index]?.label ?? "";
 
-      changeVideoDevice(videoDevices[index] ?? undefined);
+      if (changeVideoDevice(videoDevices[index] ?? undefined)) {
+        updateStreamAndPreview();
+      }
     }
   }
 
@@ -302,6 +386,7 @@ export const App = function () {
     selectVideoDevice: selectVideoDevice,
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
+    updateStreamAndPreview: updateStreamAndPreview,
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>
