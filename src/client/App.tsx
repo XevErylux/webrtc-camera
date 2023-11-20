@@ -1,43 +1,20 @@
 import Html, { Children } from "@kitajs/html";
 import { Button } from "../components/Button";
-import { SodiumPlus, X25519PublicKey, X25519SecretKey } from "sodium-plus";
+import { X25519SecretKey } from "sodium-plus";
 import { CustomWait, syncify } from "./syncify";
-
-interface VideoInputDeviceSelection {
-  label: string;
-  autoSelected: boolean;
-}
-
-interface Settings {
-  secretKey: string;
-  videoInputDevice: VideoInputDeviceSelection[];
-  videoBitrate: number;
-}
-
-const minVideoBitrateValue = 1;
-const maxVideoBitrateValue = 16;
-
-function setConfig<T extends keyof Settings>(
-  key: T,
-  value: Settings[typeof key],
-) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-function getConfig<T extends keyof Settings>(
-  key: T,
-  defaultValue: Settings[typeof key],
-): Settings[typeof key];
-function getConfig<T extends keyof Settings>(
-  key: T,
-): Settings[typeof key] | null;
-function getConfig<T extends keyof Settings>(
-  key: T,
-  defaultValue: Settings[typeof key] | null = null,
-): Settings[typeof key] | null {
-  const stringified = localStorage.getItem(key);
-  if (typeof stringified !== "string") return defaultValue;
-  return JSON.parse(stringified) as Settings[typeof key];
-}
+import {
+  getConfig,
+  maxVideoBitrateValue,
+  minVideoBitrateValue,
+  setConfig,
+} from "./Config";
+import {
+  KeyPair,
+  generateKeyPair,
+  loadKeyPairFromLocalStorage,
+  reconstructKeyPairFromSecret,
+  storeKeyPairToLocalStorage,
+} from "../types/KeyPair";
 
 function getFromHash(key: string): string | undefined {
   const hash = location.hash.split("#")[1];
@@ -52,39 +29,6 @@ function getFromHash(key: string): string | undefined {
       return itemValue;
     }
   }
-}
-
-interface KeyPair {
-  secretKey: X25519SecretKey;
-  publicKey: X25519PublicKey;
-}
-
-async function generateKeyPair(): Promise<KeyPair> {
-  const sodium = await SodiumPlus.auto();
-  const keypair = await sodium.crypto_box_keypair();
-  const secretKey = await sodium.crypto_box_secretkey(keypair); // X25519SecretKey
-  const publicKey = await sodium.crypto_box_publickey(keypair); // X25519PublicKey
-  return { secretKey, publicKey };
-}
-
-async function reconstructKeyPairFromSecret(secretKey: X25519SecretKey) {
-  const sodium = await SodiumPlus.auto();
-  const publicKey = await sodium.crypto_box_publickey_from_secretkey(secretKey);
-  return { publicKey, secretKey };
-}
-
-async function loadKeyPairFromLocalStorage(): Promise<KeyPair | undefined> {
-  const secretKeyText = getConfig("secretKey");
-  if (!secretKeyText) return;
-
-  return await reconstructKeyPairFromSecret(
-    X25519SecretKey.from(secretKeyText, "hex"),
-  );
-}
-
-function storeKeyPairToLocalStorage(keyPair: KeyPair) {
-  const secretKeyText = keyPair.secretKey.toString("hex");
-  setConfig("secretKey", secretKeyText);
 }
 
 function initialVideoDevice(videoDevices: MediaDeviceInfo[]) {
@@ -343,10 +287,10 @@ export const App = function () {
   }
 
   function increaseVideoBitrate() {
-    changeVideoBitrate(-2);
+    changeVideoBitrate(-1);
   }
   function decreaseVideoBitrate() {
-    changeVideoBitrate(2);
+    changeVideoBitrate(1);
   }
 
   return {
