@@ -10,11 +10,35 @@ import {
 } from "./Config";
 import {
   KeyPair,
+  encrypt,
   generateKeyPair,
   loadKeyPairFromLocalStorage,
   reconstructKeyPairFromSecret,
   storeKeyPairToLocalStorage,
 } from "../types/KeyPair";
+import SimplePeer from "simple-peer";
+
+type SimplePeerEncoding = {
+  maxBitrate?: number;
+};
+
+type SimplePeerParameters = { encodings: Array<SimplePeerEncoding> };
+
+type SimplePeerSender = {
+  track: MediaStreamTrack;
+  getParameters: () => SimplePeerParameters;
+  setParameters: (parameters: SimplePeerParameters) => Promise<void>;
+};
+
+type SimplePeerPc = {
+  getSenders: () => SimplePeerSender[];
+};
+
+function getSimplePeerPc(peer: SimplePeer.Instance): SimplePeerPc | undefined {
+  if ("_pc" in peer) {
+    return peer._pc as SimplePeerPc;
+  }
+}
 
 function getFromHash(key: string): string | undefined {
   const hash = location.hash.split("#")[1];
@@ -154,7 +178,8 @@ export const App = function () {
   }
 
   let videoDevices: MediaDeviceInfo[] = [];
-  var videoMediaStream: MediaStream | null = null;
+  let videoMediaStream: MediaStream | null = null;
+  let peer: SimplePeer.Instance | null = null;
 
   function findCurrentMediaDeviceInfo() {
     const videoInputDeviceConfig = getConfig("videoInputDevice", [])[0];
@@ -264,6 +289,7 @@ export const App = function () {
         {videoInputSelection}
         <span>Video Bitrate</span>
         {videoBitrateSelection}
+        <div id="send-signal-container" />
         <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
         <br />
         <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
@@ -321,14 +347,148 @@ export const App = function () {
     video.play();
   }
 
+  async function sendSignalToWebserver(signalData: SimplePeer.SignalData) {
+    const sendSignalContainer = document.getElementById(
+      "send-signal-container",
+    ) as HTMLDivElement | null;
+
+    try {
+      console.log("send key: " + signalData.type);
+
+      // Send offer to the webserver so clients obtain and can answer it
+      if (sendSignalContainer) {
+        if (!keyPair) {
+          sendSignalContainer.innerHTML = `Could not send ${signalData.type}, because the keyPair is not initialized yet.`;
+          sendSignalContainer.style.color = "red";
+        } else {
+          // TODO: Encrypt signalData with keypair
+          const encryptedSignalData = await encrypt(
+            keyPair,
+            JSON.stringify(signalData),
+          );
+
+          sendSignalContainer.innerHTML = String(
+            <>
+              <form
+                aria-busy="true"
+                hx-post="/connections/offer"
+                hx-target="this"
+                hx-swap="outerHTML"
+                hx-trigger="load"
+                hx-include="[name='publicKey'],[name='signalData']"
+              >
+                <span>
+                  Sending encrypted offer information to the webserver
+                </span>
+                <input
+                  type="hidden"
+                  name="publicKey"
+                  value={keyPair.publicKey.toString("hex")}
+                />
+                <input
+                  type="hidden"
+                  name="signalData"
+                  value={encryptedSignalData}
+                />
+              </form>
+            </>,
+          );
+
+          const form = sendSignalContainer.firstElementChild as
+            | HTMLFormElement
+            | undefined;
+          if (form) {
+            htmx.process(form);
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (sendSignalContainer) {
+        sendSignalContainer.innerHTML = `Could not send ${signalData.type}, because of an unknown error.`;
+        sendSignalContainer.style.color = "red";
+        return;
+      }
+      console.log(err);
+    }
+  }
+
+  function initSenderPeer() {
+    const videoPeer = new SimplePeer({
+      initiator: true,
+      trickle: false,
+      stream: videoMediaStream ?? undefined,
+      config: { iceServers: [] },
+    });
+
+    videoPeer.on("signal", function (data) {
+      sendSignalToWebserver(data);
+    });
+
+    return videoPeer;
+  }
+
+  function updatePeer(type: "sender" | "receiver") {
+    if (type === "sender") {
+      peer = peer ?? initSenderPeer();
+
+      let streamAlreadyAdded = false;
+      for (const stream of peer.streams) {
+        if (stream === videoMediaStream) {
+          streamAlreadyAdded = true;
+          continue;
+        }
+        peer.removeStream(stream);
+        const tracks = stream.getTracks();
+        for (const track of tracks) {
+          track.stop();
+        }
+      }
+
+      if (videoMediaStream && !streamAlreadyAdded) {
+        peer.addStream(videoMediaStream);
+      }
+
+      const _pc = getSimplePeerPc(peer);
+      if (_pc) {
+        for (const sender of _pc.getSenders()) {
+          const track = sender.track;
+          if (!track || track.kind !== "video") continue;
+
+          const parameters = sender.getParameters();
+          if (!parameters.encodings) {
+            parameters.encodings = [{}];
+          }
+
+          const maxBitrateInBitsPerSecond =
+            getConfig("videoBitrate", 12) * 1000 * 1000;
+          if (
+            parameters.encodings[0].maxBitrate !== maxBitrateInBitsPerSecond
+          ) {
+            parameters.encodings[0].maxBitrate = maxBitrateInBitsPerSecond;
+            sender
+              .setParameters(parameters)
+              .then(() => {
+                console.log(
+                  `Bitrate changed successfuly to ${maxBitrateInBitsPerSecond}`,
+                );
+              })
+              .catch((e: unknown) => console.error(e));
+          }
+        }
+      }
+    }
+  }
+
   function updateStreamAndPreview() {
     (async function () {
       try {
-        console.log("hx-on - afterSettle");
+        //console.log("hx-on - afterSettle");
         const deviceInfo = findCurrentMediaDeviceInfo();
         videoMediaStream =
           (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
         updateVideoDevicePreview();
+
+        updatePeer("sender");
       } catch (e) {
         console.error("updateStreamAndPreview failed", e);
       }
@@ -367,6 +527,8 @@ export const App = function () {
       videoBitrateMinus.disabled = newValue <= minVideoBitrateValue;
       videoBitratePlus.disabled = newValue >= maxVideoBitrateValue;
       setConfig("videoBitrate", newValue);
+
+      updatePeer("sender");
     }
   }
 

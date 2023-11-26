@@ -15,10 +15,6 @@ const notifies: Record<number, HTMLDivElement | (() => void)> = {};
 
 let idCounter = 1;
 
-declare const htmx: {
-  on: (eventName: string, handler: (evt: Event) => void) => void;
-};
-
 htmx.on("htmx:load", function (evt: Event) {
   if ("detail" in evt) {
     const detail = evt.detail;

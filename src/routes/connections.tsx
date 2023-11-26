@@ -12,10 +12,13 @@ router.get("/", function (req, res, next) {
   res.send(element);
 });
 
+type ListenerType = "sender" | "receiver";
+
 class SenderState {
   private static activeStates: Record<string, SenderState> = {};
 
   private readonly listeners: SenderEvents[] = [];
+  private encryptedOffer?: string;
 
   private constructor(public readonly publicKey: string) {}
 
@@ -27,10 +30,14 @@ class SenderState {
   }
 
   openListener(
+    type: ListenerType,
     response: Response<any, Record<string, any>, number>,
   ): SenderEvents {
-    const listener = new SenderEvents(this, response);
+    const listener = new SenderEvents(this, type, response);
     this.listeners.push(listener);
+    if (this.encryptedOffer) {
+      listener.send("receiver", this.encryptedOffer, "offer");
+    }
     return listener;
   }
 
@@ -44,9 +51,14 @@ class SenderState {
     return false;
   }
 
-  private send(data: string, event?: string) {
+  setEncryptedOffer(data: string) {
+    this.encryptedOffer = data;
+    this.send("receiver", data, "offer");
+  }
+
+  private send(type: ListenerType, data: string, event?: string) {
     for (const listener of this.listeners) {
-      listener.send(data, event);
+      listener.send(type, data, event);
     }
   }
 }
@@ -54,10 +66,14 @@ class SenderState {
 class SenderEvents {
   constructor(
     private readonly state: SenderState,
+    private readonly type: ListenerType,
     private readonly response: Response<any, Record<string, any>, number>,
   ) {}
 
-  send(data: string, event?: string) {
+  send(type: ListenerType, data: string, event?: string) {
+    if (this.type !== type)
+    return;
+
     const response = this.response;
     if (event) {
       response.write(`event: ${event}\ndata: ${data}\n\n`);
@@ -89,7 +105,7 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   );
 
   const senderState = SenderState.get(publicKey);
-  const senderEvents = senderState.openListener(res);
+  const senderEvents = senderState.openListener("sender", res);
 
   let keepAliveTimeout: NodeJS.Timeout;
 
@@ -114,6 +130,24 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   }
 
   keepAliveTimeout = setTimeout(keepAlive, keepAliveMS);
+});
+
+interface OfferRequest {
+  publicKey: string;
+  signalData: string;
+}
+
+router.post("/offer", function (req, res, next) {
+  const body = req.body as Partial<OfferRequest>;
+  if (!body.publicKey || !body.signalData) {
+    res.sendStatus(400);
+    return;
+  }
+
+  const state = SenderState.get(body.publicKey);
+  state.setEncryptedOffer(body.signalData);
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send("");
 });
 
 export default router;
