@@ -14,34 +14,36 @@ router.get("/", function (req, res, next) {
 
 type ListenerType = "sender" | "receiver";
 
-class SenderState {
-  private static activeStates: Record<string, SenderState> = {};
+class State {
+  private static activeStates: Record<string, State> = {};
 
-  private readonly listeners: SenderEvents[] = [];
+  private readonly listeners: Events[] = [];
   private encryptedOffer?: string;
 
   private constructor(public readonly publicKey: string) {}
 
-  static get(publicKey: string): SenderState {
+  static get(publicKey: string): State {
     return (
-      SenderState.activeStates[publicKey] ??
-      (SenderState.activeStates[publicKey] = new SenderState(publicKey))
+      State.activeStates[publicKey] ??
+      (State.activeStates[publicKey] = new State(publicKey))
     );
   }
 
   openListener(
     type: ListenerType,
     response: Response<any, Record<string, any>, number>,
-  ): SenderEvents {
-    const listener = new SenderEvents(this, type, response);
+  ): Events {
+    const listener = new Events(this, type, response);
     this.listeners.push(listener);
     if (this.encryptedOffer) {
-      listener.send("receiver", this.encryptedOffer, "offer");
+      listener.send("receiver", this.renderOffer(this.encryptedOffer), "offer");
     }
+    listener.send("sender", this.renderConnected(), "connected");
+    
     return listener;
   }
 
-  closeListener(listener: SenderEvents): boolean {
+  closeListener(listener: Events): boolean {
     const listeners = this.listeners;
     const index = listeners.indexOf(listener, 0);
     if (index > -1) {
@@ -51,9 +53,27 @@ class SenderState {
     return false;
   }
 
+  private renderConnected() {
+    return String(<div hx-on="htmx:load: app.senderEventsConnected()" />); 
+  }
+
+  private renderOffer(encryptedOffer: string) {
+    return String(
+      <form
+        hx-get="js:app.acceptOffer"
+        hx-target="this"
+        hx-ext="serverless"
+        hx-swap="outerHTML"
+        hx-trigger="load"
+      >
+        <input type="hidden" name="offer" value={encryptedOffer} />
+      </form>,
+    );
+  }
+
   setEncryptedOffer(data: string) {
     this.encryptedOffer = data;
-    this.send("receiver", data, "offer");
+    this.send("receiver", this.renderOffer(data), "offer");
   }
 
   private send(type: ListenerType, data: string, event?: string) {
@@ -63,16 +83,15 @@ class SenderState {
   }
 }
 
-class SenderEvents {
+class Events {
   constructor(
-    private readonly state: SenderState,
+    private readonly state: State,
     private readonly type: ListenerType,
     private readonly response: Response<any, Record<string, any>, number>,
   ) {}
 
   send(type: ListenerType, data: string, event?: string) {
-    if (this.type !== type)
-    return;
+    if (this.type !== type) return;
 
     const response = this.response;
     if (event) {
@@ -91,7 +110,18 @@ class SenderEvents {
   }
 }
 
-router.get("/sender-events/:publicKey", function (req, res, next) {
+router.get("/:publicKey/:type-events", function (req, res, next) {
+  const publicKey = req.params.publicKey;
+  console.log(
+    `sender client ${publicKey}:${req.socket.remotePort} established connection`,
+  );
+
+  const type = req.params.type;
+  if (type !== "sender" && type !== "receiver") {
+    res.sendStatus(400);
+    return;
+  }
+
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -99,13 +129,8 @@ router.get("/sender-events/:publicKey", function (req, res, next) {
   res.flushHeaders();
   res.write(":\n\n");
 
-  const publicKey = req.params.publicKey;
-  console.log(
-    `sender client ${publicKey}:${req.socket.remotePort} established connection`,
-  );
-
-  const senderState = SenderState.get(publicKey);
-  const senderEvents = senderState.openListener("sender", res);
+  const senderState = State.get(publicKey);
+  const senderEvents = senderState.openListener(type, res);
 
   let keepAliveTimeout: NodeJS.Timeout;
 
@@ -144,7 +169,7 @@ router.post("/offer", function (req, res, next) {
     return;
   }
 
-  const state = SenderState.get(body.publicKey);
+  const state = State.get(body.publicKey);
   state.setEncryptedOffer(body.signalData);
   res.setHeader("Content-Type", "text/html");
   res.status(200).send("");

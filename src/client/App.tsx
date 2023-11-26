@@ -154,10 +154,28 @@ export const App = function () {
       X25519SecretKey.from(secretKeyText, "hex"),
     );
 
+    const connId = keyPair.publicKey.toString("hex");
     // TODO: If we have a secret key, we must construct
     // the public key, fetch the offer and answer it.
     return String(
-      <div>TODO: Here should have been the code for the receiver!</div>,
+      <div hx-ext="sse" sse-connect={`/connections/${connId}/receiver-events`}>
+        <div sse-swap="offer">
+          <div aria-busy="true" />
+        </div>
+      </div>,
+    );
+  }
+
+  async function acceptOffer(encryptedOffer: string): Promise<string> {
+    // TODO: Do not print the encryptedOffer. 
+    // Instead decrypt it answer it and send it encrypted back to the server,
+    // so the sender can receive the answer.
+    return String(
+      <div>
+        Offer accepted
+        <br />
+        <span safe>{encryptedOffer}</span>
+      </div>,
     );
   }
 
@@ -277,12 +295,11 @@ export const App = function () {
       </nav>,
     ];
 
+    const connId = keyPair.publicKey.toString("hex");
     return String(
       <div
         hx-ext="sse"
-        sse-connect={`/connections/sender-events/${keyPair.publicKey.toString(
-          "hex",
-        )}`}
+        sse-connect={`/connections/${connId}/sender-events`}
         hx-on={`htmx:load: ${call("updateStreamAndPreview", false)}()`}
       >
         <span>Video Input Device</span>
@@ -296,6 +313,11 @@ export const App = function () {
         <br />
         <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
         <br />
+        <div
+          id="sender-connected"
+          style={{ display: "none" }}
+          sse-swap="connected"
+        />
         <div id="video-preview-container" />
         <br />
         Receiver Count: <span sse-swap="receiver-count">?</span>
@@ -314,6 +336,14 @@ export const App = function () {
         Some text below buttons
       </div>,
     );
+  }
+
+  let senderSignalData: SimplePeer.SignalData | undefined;
+
+  function senderEventsConnected() {
+    if (senderSignalData) {
+      sendSignalToWebserver(senderSignalData);
+    }
   }
 
   function updateVideoDevicePreview() {
@@ -421,6 +451,7 @@ export const App = function () {
     });
 
     videoPeer.on("signal", function (data) {
+      senderSignalData = data;
       sendSignalToWebserver(data);
     });
 
@@ -545,10 +576,14 @@ export const App = function () {
       return (await initReceiver()) ?? (await initSender(customWait));
     }),
     senderConnectToWebcam: syncify(senderConnectToWebcam),
+    senderEventsConnected: senderEventsConnected,
     selectVideoDevice: selectVideoDevice,
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
     updateStreamAndPreview: updateStreamAndPreview,
+    acceptOffer: syncify((customWait: CustomWait, data: [unknown, {offer: string}]) => {
+      return acceptOffer(data[1].offer);
+    }),
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>
