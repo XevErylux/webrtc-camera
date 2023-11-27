@@ -39,7 +39,7 @@ class State {
       listener.send("receiver", this.renderOffer(this.encryptedOffer), "offer");
     }
     listener.send("sender", this.renderConnected(), "connected");
-    
+
     return listener;
   }
 
@@ -54,7 +54,7 @@ class State {
   }
 
   private renderConnected() {
-    return String(<div hx-on="htmx:load: app.senderEventsConnected()" />); 
+    return String(<div hx-on="htmx:load: app.senderEventsConnected()" />);
   }
 
   private renderOffer(encryptedOffer: string) {
@@ -74,6 +74,27 @@ class State {
   setEncryptedOffer(data: string) {
     this.encryptedOffer = data;
     this.send("receiver", this.renderOffer(data), "offer");
+  }
+
+  private renderAnswer(encryptedAnswer: string) {
+    return String(
+      <form
+        hx-get="js:app.acceptAnswer"
+        hx-target="this"
+        hx-ext="serverless"
+        hx-swap="outerHTML"
+        hx-trigger="load"
+      >
+        <input type="hidden" name="answer" value={encryptedAnswer} />
+      </form>,
+    );
+  }
+
+  setEncryptedAnswer(data: string) {
+    // Do not store the answer, because it could be already invalid,
+    // when the sender is reconnecting. The sender issues another
+    // offer which must be answered in realtime.
+    this.send("sender", this.renderAnswer(data), "answer");
   }
 
   private send(type: ListenerType, data: string, event?: string) {
@@ -111,16 +132,16 @@ class Events {
 }
 
 router.get("/:publicKey/:type-events", function (req, res, next) {
-  const publicKey = req.params.publicKey;
-  console.log(
-    `sender client ${publicKey}:${req.socket.remotePort} established connection`,
-  );
-
   const type = req.params.type;
   if (type !== "sender" && type !== "receiver") {
     res.sendStatus(400);
     return;
   }
+
+  const publicKey = req.params.publicKey;
+  console.log(
+    `${type} client ${publicKey}:${req.socket.remotePort} established connection`,
+  );
 
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Content-Type", "text/event-stream");
@@ -137,7 +158,7 @@ router.get("/:publicKey/:type-events", function (req, res, next) {
   // If client closes connection, stop sending events
   res.on("close", () => {
     console.log(
-      `sender client ${publicKey}:${req.socket.remotePort} dropped connection`,
+      `${type} client ${publicKey}:${req.socket.remotePort} dropped connection`,
     );
     res.end();
     senderEvents.free();
@@ -157,20 +178,30 @@ router.get("/:publicKey/:type-events", function (req, res, next) {
   keepAliveTimeout = setTimeout(keepAlive, keepAliveMS);
 });
 
-interface OfferRequest {
+interface SignalRequest {
   publicKey: string;
   signalData: string;
 }
 
-router.post("/offer", function (req, res, next) {
-  const body = req.body as Partial<OfferRequest>;
+router.post("/:type", function (req, res, next) {
+  const type = req.params.type;
+  if (type !== "offer" && type !== "answer") {
+    res.sendStatus(400);
+    return;
+  }
+
+  const body = req.body as Partial<SignalRequest>;
   if (!body.publicKey || !body.signalData) {
     res.sendStatus(400);
     return;
   }
 
   const state = State.get(body.publicKey);
-  state.setEncryptedOffer(body.signalData);
+  if (type === "offer") {
+    state.setEncryptedOffer(body.signalData);
+  } else if (type === "answer") {
+    state.setEncryptedAnswer(body.signalData);
+  }
   res.setHeader("Content-Type", "text/html");
   res.status(200).send("");
 });

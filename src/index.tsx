@@ -3,6 +3,7 @@ import usersRouter from "./routes/users";
 import connectionsRouter from "./routes/connections";
 import Html from "@kitajs/html";
 import { BaseHTML } from "./components/BaseHTML";
+import { AppInitializer } from "./components/AppInitializer";
 const path = require("path");
 
 const app = express();
@@ -14,14 +15,7 @@ app.get("/", (req, res) => {
   res.send(
     <BaseHTML>
       <main class="container">
-        <div
-          aria-busy="true"
-          hx-get="js:app.init"
-          hx-target="this"
-          hx-ext="serverless"
-          hx-swap="outerHTML"
-          hx-trigger="load"
-        />
+        <AppInitializer />
       </main>
     </BaseHTML>,
   );

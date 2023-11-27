@@ -10,6 +10,7 @@ import {
 } from "./Config";
 import {
   KeyPair,
+  decrypt,
   encrypt,
   generateKeyPair,
   loadKeyPairFromLocalStorage,
@@ -17,6 +18,7 @@ import {
   storeKeyPairToLocalStorage,
 } from "../types/KeyPair";
 import SimplePeer from "simple-peer";
+import { AppInitializer } from "../components/AppInitializer";
 
 type SimplePeerEncoding = {
   maxBitrate?: number;
@@ -150,9 +152,14 @@ export const App = function () {
     const secretKeyText = getFromHash("key");
     if (!secretKeyText) return;
 
-    keyPair = await reconstructKeyPairFromSecret(
-      X25519SecretKey.from(secretKeyText, "hex"),
-    );
+    try {
+      keyPair = await reconstructKeyPairFromSecret(
+        X25519SecretKey.from(secretKeyText, "hex"),
+      );
+      if (!keyPair) throw new Error("Invalid key");
+    } catch (ex: unknown) {
+      return <span style={{ color: "red" }}>{ex}</span>;
+    }
 
     const connId = keyPair.publicKey.toString("hex");
     // TODO: If we have a secret key, we must construct
@@ -160,21 +167,84 @@ export const App = function () {
     return String(
       <div hx-ext="sse" sse-connect={`/connections/${connId}/receiver-events`}>
         <div sse-swap="offer">
-          <div aria-busy="true" />
+          <div aria-busy="true">
+            Waiting for sender to provide the offer.
+            <br />
+            <br />
+            If it takes longer, try to share the link from the sender again.
+          </div>
         </div>
       </div>,
     );
   }
 
+  let senderOffer: SimplePeer.SignalData | undefined;
+  let receiverAnswer: SimplePeer.SignalData | undefined;
+
   async function acceptOffer(encryptedOffer: string): Promise<string> {
-    // TODO: Do not print the encryptedOffer. 
-    // Instead decrypt it answer it and send it encrypted back to the server,
-    // so the sender can receive the answer.
+    if (!keyPair) {
+      return String(
+        <span style={{ color: "red" }}>
+          Error: Accept offer got called before the keypair got initialized
+        </span>,
+      );
+    }
+
+    const offer: SimplePeer.SignalData | undefined = JSON.parse(
+      await decrypt(keyPair, encryptedOffer),
+    );
+    if (offer?.type !== "offer") {
+      debugger;
+      return String(
+        <span style={{ color: "red" }}>
+          Error: SignalData was not an offer.
+        </span>,
+      );
+    }
+
+    senderOffer = offer;
+
+    updatePeer("receiver");
+
     return String(
-      <div>
-        Offer accepted
+      <div aria-busy="true">
+        Offer obtained, answering...
         <br />
-        <span safe>{encryptedOffer}</span>
+        <div id="send-signal-container" />
+      </div>,
+    );
+  }
+
+  async function acceptAnswer(encryptedAnswer: string): Promise<string> {
+    if (!keyPair) {
+      return String(
+        <span style={{ color: "red" }}>
+          Error: Accept offer got called before the keypair got initialized
+        </span>,
+      );
+    }
+
+    const answer: SimplePeer.SignalData | undefined = JSON.parse(
+      await decrypt(keyPair, encryptedAnswer),
+    );
+    if (answer?.type !== "answer") {
+      debugger;
+      return String(
+        <span style={{ color: "red" }}>
+          Error: SignalData was not an answer.
+        </span>,
+      );
+    }
+
+    receiverAnswer = answer;
+
+    // TODO: Do not display answer, instead establish the direct connection.
+
+    return String(
+      <div aria-busy="true">
+        Answer obtained, establish direct connection...
+        <br />
+        <span safe>{JSON.stringify(receiverAnswer)}</span>
       </div>,
     );
   }
@@ -319,6 +389,9 @@ export const App = function () {
           sse-swap="connected"
         />
         <div id="video-preview-container" />
+        <div sse-swap="answer">
+          <div aria-busy="true">Waiting for receiver to provide an answer.</div>
+        </div>
         <br />
         Receiver Count: <span sse-swap="receiver-count">?</span>
         <br />
@@ -338,11 +411,9 @@ export const App = function () {
     );
   }
 
-  let senderSignalData: SimplePeer.SignalData | undefined;
-
   function senderEventsConnected() {
-    if (senderSignalData) {
-      sendSignalToWebserver(senderSignalData);
+    if (senderOffer) {
+      sendSignalToWebserver(senderOffer);
     }
   }
 
@@ -401,7 +472,7 @@ export const App = function () {
             <>
               <form
                 aria-busy="true"
-                hx-post="/connections/offer"
+                hx-post={`/connections/${signalData.type}`}
                 hx-target="this"
                 hx-swap="outerHTML"
                 hx-trigger="load"
@@ -451,7 +522,22 @@ export const App = function () {
     });
 
     videoPeer.on("signal", function (data) {
-      senderSignalData = data;
+      senderOffer = data;
+      sendSignalToWebserver(data);
+    });
+
+    return videoPeer;
+  }
+
+  function initReceiverPeer() {
+    const videoPeer = new SimplePeer({
+      initiator: false,
+      trickle: false,
+      config: { iceServers: [] },
+    });
+
+    videoPeer.on("signal", function (data) {
+      senderOffer = data;
       sendSignalToWebserver(data);
     });
 
@@ -506,6 +592,12 @@ export const App = function () {
               .catch((e: unknown) => console.error(e));
           }
         }
+      }
+    } else if (type === "receiver") {
+      peer = peer ?? initReceiverPeer();
+
+      if (senderOffer) {
+        peer.signal(senderOffer);
       }
     }
   }
@@ -570,6 +662,17 @@ export const App = function () {
     changeVideoBitrate(1);
   }
 
+  window.onhashchange = async function () {
+    const container = document.querySelector("main.container");
+    if (!container) return;
+
+    container.innerHTML = String(<AppInitializer />);
+    var appInitializer = container.firstElementChild as HTMLElement;
+    if (!appInitializer) return;
+
+    htmx.process(appInitializer);
+  };
+
   return {
     call: call,
     init: syncify(async (customWait: CustomWait) => {
@@ -581,9 +684,16 @@ export const App = function () {
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
     updateStreamAndPreview: updateStreamAndPreview,
-    acceptOffer: syncify((customWait: CustomWait, data: [unknown, {offer: string}]) => {
-      return acceptOffer(data[1].offer);
-    }),
+    acceptOffer: syncify(
+      (customWait: CustomWait, data: [unknown, { offer: string }]) => {
+        return acceptOffer(data[1].offer);
+      },
+    ),
+    acceptAnswer: syncify(
+      (customWait: CustomWait, data: [unknown, { answer: string }]) => {
+        return acceptAnswer(data[1].answer);
+      },
+    ),
     addDiv: () => (
       <div>
         Inserted by <span safe>{call("addDiv")}</span>
