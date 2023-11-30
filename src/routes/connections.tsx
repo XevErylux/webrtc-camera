@@ -117,8 +117,18 @@ class Events {
     const response = this.response;
     if (event) {
       response.write(`event: ${event}\ndata: ${data}\n\n`);
+      console.log(
+        `send event to ${type} client:${
+          response.socket?.remotePort ?? 0
+        } ${event} with ${data.length} bytes`,
+      );
     } else {
       response.write(`data: ${data}\n\n`);
+      console.log(
+        `send event to ${type} client:${
+          response.socket?.remotePort ?? 0
+        } with ${data.length} bytes`,
+      );
     }
   }
 
@@ -140,7 +150,9 @@ router.get("/:publicKey/:type-events", function (req, res, next) {
 
   const publicKey = req.params.publicKey;
   console.log(
-    `${type} client ${publicKey}:${req.socket.remotePort} established connection`,
+    `${type} client ${publicKey}:${
+      req.socket?.remotePort ?? 0
+    } established connection`,
   );
 
   res.setHeader("Cache-Control", "no-cache");

@@ -20,6 +20,9 @@ import {
 import SimplePeer from "simple-peer";
 import { AppInitializer } from "../components/AppInitializer";
 
+// Ability to disable the preview so it does not consume so much resources.
+const disableVideoPreview = true;
+
 type SimplePeerEncoding = {
   maxBitrate?: number;
 };
@@ -162,7 +165,7 @@ export const App = function () {
     }
 
     const connId = keyPair.publicKey.toString("hex");
-    // TODO: If we have a secret key, we must construct
+    // If we have a secret key, we must construct
     // the public key, fetch the offer and answer it.
     return String(
       <div hx-ext="sse" sse-connect={`/connections/${connId}/receiver-events`}>
@@ -202,6 +205,14 @@ export const App = function () {
       );
     }
 
+    if (senderOffer !== offer) {
+      if (peer) {
+        log("acceptOffer: peer.destroy()");
+        peer.destroy();
+        peer = null;
+      }
+    }
+
     senderOffer = offer;
 
     updatePeer("receiver");
@@ -211,6 +222,9 @@ export const App = function () {
         Offer obtained, answering...
         <br />
         <div id="send-signal-container" />
+        <div id="messages" safe>
+          {messages}
+        </div>
       </div>,
     );
   }
@@ -238,13 +252,25 @@ export const App = function () {
 
     receiverAnswer = answer;
 
-    // TODO: Do not display answer, instead establish the direct connection.
+    console.log("acceptAnswer: peer?.signal");
+    if (peer?.destroyed === false) {
+      peer?.signal(answer);
+    } else {
+      const text =
+        "Peer was already destroyed when receiving answer. Recreating...";
+      log(`acceptAnswer: ${text}`);
+
+      peer?.destroy();
+      peer = null;
+
+      updatePeer("sender");
+
+      return String(<div aria-busy="true">{text}</div>);
+    }
 
     return String(
       <div aria-busy="true">
         Answer obtained, establish direct connection...
-        <br />
-        <span safe>{JSON.stringify(receiverAnswer)}</span>
       </div>,
     );
   }
@@ -392,6 +418,7 @@ export const App = function () {
         <div sse-swap="answer">
           <div aria-busy="true">Waiting for receiver to provide an answer.</div>
         </div>
+        <div id="messages"></div>
         <br />
         Receiver Count: <span sse-swap="receiver-count">?</span>
         <br />
@@ -418,6 +445,7 @@ export const App = function () {
   }
 
   function updateVideoDevicePreview() {
+    if (disableVideoPreview) return;
     const videoPreviewContainer = document.getElementById(
       "video-preview-container",
     );
@@ -446,6 +474,23 @@ export const App = function () {
 
     video.srcObject = videoMediaStream;
     video.play();
+  }
+
+  var messages = "";
+
+  function log(message: string) {
+    console.log(message);
+    var elMessages = document.getElementById("messages");
+
+    if (messages === "") {
+      messages = message;
+    } else {
+      messages += "\r\n" + message;
+    }
+
+    if (elMessages) {
+      elMessages.innerText = messages;
+    }
   }
 
   async function sendSignalToWebserver(signalData: SimplePeer.SignalData) {
@@ -514,6 +559,8 @@ export const App = function () {
   }
 
   function initSenderPeer() {
+    log("initSenderPeer");
+
     const videoPeer = new SimplePeer({
       initiator: true,
       trickle: false,
@@ -522,14 +569,31 @@ export const App = function () {
     });
 
     videoPeer.on("signal", function (data) {
+      if (videoPeer.connected) {
+        log(`senderPeer.signal: Ignore ${data.type} - already connected`);
+        return;
+      }
+
       senderOffer = data;
+      log(`senderPeer.signal: ${data.type}`);
+
       sendSignalToWebserver(data);
+    });
+
+    videoPeer.on("connect", function () {
+      log(`senderPeer.connected`);
+    });
+
+    videoPeer.on("stream", function (stream) {
+      log(`senderPeer.stream: ${stream}`);
     });
 
     return videoPeer;
   }
 
   function initReceiverPeer() {
+    log("initReceiverPeer");
+
     const videoPeer = new SimplePeer({
       initiator: false,
       trickle: false,
@@ -537,14 +601,25 @@ export const App = function () {
     });
 
     videoPeer.on("signal", function (data) {
+      log(`receiverPeer.signal`);
       senderOffer = data;
       sendSignalToWebserver(data);
+    });
+
+    videoPeer.on("connect", function () {
+      log(`receiverPeer.connected`);
+    });
+
+    videoPeer.on("stream", function (stream) {
+      // TODO: Play received stream.
+      log(`receiverPeer.stream: ${stream}`);
     });
 
     return videoPeer;
   }
 
   function updatePeer(type: "sender" | "receiver") {
+    log(`updatePeer(${type})`);
     if (type === "sender") {
       peer = peer ?? initSenderPeer();
 
