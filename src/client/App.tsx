@@ -20,8 +20,8 @@ import {
 import SimplePeer from "simple-peer";
 import { AppInitializer } from "../components/AppInitializer";
 
-// Ability to disable the preview so it does not consume so much resources.
-const disableVideoPreview = true;
+// Ability to disable the video so it does not consume so much resources.
+const disableVideo = { sender: false, receiver: false };
 
 type SimplePeerEncoding = {
   maxBitrate?: number;
@@ -124,8 +124,20 @@ function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
   return false;
 }
 
-function getMediaStream(videoDevice: MediaDeviceInfo | null) {
+type MediaStreamInfo = {
+  mediaStream: MediaStream;
+  deviceInfo?: MediaDeviceInfo;
+};
+
+let videoMediaStream: MediaStreamInfo | null = null;
+
+async function getMediaStream(
+  videoDevice: MediaDeviceInfo | null,
+): Promise<MediaStreamInfo | null> {
   if (!videoDevice) return null;
+  if (videoMediaStream?.deviceInfo === videoDevice) {
+    return videoMediaStream;
+  }
 
   /* open the device you want */
   const constraints = {
@@ -137,8 +149,8 @@ function getMediaStream(videoDevice: MediaDeviceInfo | null) {
       height: 1080,
     },
   };
-  const stream = navigator.mediaDevices.getUserMedia(constraints);
-  return stream;
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  return { mediaStream: stream, deviceInfo: videoDevice };
 }
 
 export const App = function () {
@@ -169,6 +181,7 @@ export const App = function () {
     // the public key, fetch the offer and answer it.
     return String(
       <div hx-ext="sse" sse-connect={`/connections/${connId}/receiver-events`}>
+        <div id="video-preview-container" />
         <div sse-swap="offer">
           <div aria-busy="true">
             Waiting for sender to provide the offer.
@@ -197,7 +210,6 @@ export const App = function () {
       await decrypt(keyPair, encryptedOffer),
     );
     if (offer?.type !== "offer") {
-      debugger;
       return String(
         <span style={{ color: "red" }}>
           Error: SignalData was not an offer.
@@ -292,7 +304,6 @@ export const App = function () {
   }
 
   let videoDevices: MediaDeviceInfo[] = [];
-  let videoMediaStream: MediaStream | null = null;
   let peer: SimplePeer.Instance | null = null;
 
   function findCurrentMediaDeviceInfo() {
@@ -307,6 +318,8 @@ export const App = function () {
   }
 
   async function senderConnectToWebcam(customWait: CustomWait) {
+    log("senderConnectToWebcam()");
+
     if (!keyPair) {
       keyPair = await loadKeyPairFromLocalStorage();
     }
@@ -414,6 +427,12 @@ export const App = function () {
           style={{ display: "none" }}
           sse-swap="connected"
         />
+        <button
+          id="stop-webcam"
+          onclick={`${call("stopWebcam")}();return true;`}
+        >
+          Stop Webcam
+        </button>
         <div id="video-preview-container" />
         <div sse-swap="answer">
           <div aria-busy="true">Waiting for receiver to provide an answer.</div>
@@ -438,14 +457,27 @@ export const App = function () {
     );
   }
 
+  async function stopWebcam(): Promise<void> {
+    const stream = videoMediaStream?.mediaStream;
+    if (stream) {
+      peer?.removeStream(stream);
+      const tracks = stream.getTracks();
+      if (tracks) {
+        for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+      }
+      videoMediaStream = null;
+      updateVideoDevicePreview("sender");
+    }
+  }
+
   function senderEventsConnected() {
     if (senderOffer) {
       sendSignalToWebserver(senderOffer);
     }
   }
 
-  function updateVideoDevicePreview() {
-    if (disableVideoPreview) return;
+  function updateVideoDevicePreview(type: "sender" | "receiver") {
+    if (disableVideo[type]) return;
     const videoPreviewContainer = document.getElementById(
       "video-preview-container",
     );
@@ -472,8 +504,13 @@ export const App = function () {
       })();
     }
 
-    video.srcObject = videoMediaStream;
-    video.play();
+    if (!videoMediaStream) {
+      video.pause();
+      video.srcObject = null;
+    } else {
+      video.srcObject = videoMediaStream.mediaStream;
+      video.play();
+    }
   }
 
   var messages = "";
@@ -507,7 +544,7 @@ export const App = function () {
           sendSignalContainer.innerHTML = `Could not send ${signalData.type}, because the keyPair is not initialized yet.`;
           sendSignalContainer.style.color = "red";
         } else {
-          // TODO: Encrypt signalData with keypair
+          // Encrypt signalData with keypair
           const encryptedSignalData = await encrypt(
             keyPair,
             JSON.stringify(signalData),
@@ -558,34 +595,48 @@ export const App = function () {
     }
   }
 
+  var senderPeerCounter = 0;
+
   function initSenderPeer() {
     log("initSenderPeer");
 
     const videoPeer = new SimplePeer({
       initiator: true,
       trickle: false,
-      stream: videoMediaStream ?? undefined,
+      stream: videoMediaStream?.mediaStream ?? undefined,
       config: { iceServers: [] },
     });
 
+    const senderPeerId = ++senderPeerCounter;
+
     videoPeer.on("signal", function (data) {
-      if (videoPeer.connected) {
-        log(`senderPeer.signal: Ignore ${data.type} - already connected`);
+      if (videoPeer.destroyed) {
+        log(
+          `senderPeer(${senderPeerId}).signal: Ignore ${data.type} - already destroyed`,
+        );
         return;
       }
 
       senderOffer = data;
-      log(`senderPeer.signal: ${data.type}`);
+      log(`senderPeer(${senderPeerId}).signal: ${data.type}`);
 
       sendSignalToWebserver(data);
     });
 
     videoPeer.on("connect", function () {
-      log(`senderPeer.connected`);
+      log(`senderPeer(${senderPeerId}).connected`);
     });
 
     videoPeer.on("stream", function (stream) {
-      log(`senderPeer.stream: ${stream}`);
+      log(`senderPeer(${senderPeerId}).stream: ${stream}`);
+    });
+
+    videoPeer.on("close", function () {
+      log(`senderPeer(${senderPeerId}).close`);
+    });
+
+    videoPeer.on("error", function (err) {
+      log(`senderPeer(${senderPeerId}).error: ${err}`);
     });
 
     return videoPeer;
@@ -601,18 +652,30 @@ export const App = function () {
     });
 
     videoPeer.on("signal", function (data) {
-      log(`receiverPeer.signal`);
+      log(`receiverPeer.signal: ${data.type}`);
       senderOffer = data;
       sendSignalToWebserver(data);
     });
 
     videoPeer.on("connect", function () {
+      updateVideoDevicePreview("receiver");
+
       log(`receiverPeer.connected`);
     });
 
     videoPeer.on("stream", function (stream) {
-      // TODO: Play received stream.
+      // Play received stream.
+      videoMediaStream = { mediaStream: stream };
+
       log(`receiverPeer.stream: ${stream}`);
+    });
+
+    videoPeer.on("close", () => {
+      videoMediaStream = null;
+
+      // updateVideoDevicePreview("receiver");
+
+      log(`receiverPeer.close`);
     });
 
     return videoPeer;
@@ -621,23 +684,35 @@ export const App = function () {
   function updatePeer(type: "sender" | "receiver") {
     log(`updatePeer(${type})`);
     if (type === "sender") {
-      peer = peer ?? initSenderPeer();
+      peer = peer?.destroyed === false ? peer : initSenderPeer();
 
       let streamAlreadyAdded = false;
+      const streams = peer.streams;
       for (const stream of peer.streams) {
-        if (stream === videoMediaStream) {
+        if (stream === videoMediaStream?.mediaStream) {
           streamAlreadyAdded = true;
           continue;
         }
         peer.removeStream(stream);
+
+        const index = streams.indexOf(stream);
+        if (index > -1) {
+          // only splice array when item is found
+          streams.splice(index, 1); // 2nd parameter means remove one item only
+        }
+
         const tracks = stream.getTracks();
         for (const track of tracks) {
           track.stop();
         }
       }
 
+      log(
+        `updatePeer(${type}): { videoMediaStream: ${videoMediaStream?.mediaStream?.id}, streamAlreadyAdded: ${streamAlreadyAdded} }`,
+      );
       if (videoMediaStream && !streamAlreadyAdded) {
-        peer.addStream(videoMediaStream);
+        peer.addStream(videoMediaStream.mediaStream);
+        streams.push(videoMediaStream.mediaStream);
       }
 
       const _pc = getSimplePeerPc(peer);
@@ -669,7 +744,7 @@ export const App = function () {
         }
       }
     } else if (type === "receiver") {
-      peer = peer ?? initReceiverPeer();
+      peer = peer?.destroyed === false ? peer : initReceiverPeer();
 
       if (senderOffer) {
         peer.signal(senderOffer);
@@ -677,20 +752,34 @@ export const App = function () {
     }
   }
 
-  function updateStreamAndPreview() {
-    (async function () {
-      try {
-        //console.log("hx-on - afterSettle");
-        const deviceInfo = findCurrentMediaDeviceInfo();
-        videoMediaStream =
-          (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
-        updateVideoDevicePreview();
+  let updateStreamAndPreviewPromise: Promise<void> | null = null;
 
-        updatePeer("sender");
-      } catch (e) {
-        console.error("updateStreamAndPreview failed", e);
-      }
-    })();
+  function updateStreamAndPreview() {
+    updateStreamAndPreviewPromise =
+      updateStreamAndPreviewPromise ??
+      (async function () {
+        try {
+          log("updateStreamAndPreview");
+          const deviceInfo = findCurrentMediaDeviceInfo();
+
+          const oldId = videoMediaStream?.mediaStream.id;
+
+          videoMediaStream =
+            (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
+
+          log(
+            `updateStreamAndPreview: ${oldId} -> ${videoMediaStream?.mediaStream.id}`,
+          );
+
+          updateVideoDevicePreview("sender");
+
+          updatePeer("sender");
+        } catch (e) {
+          console.error("updateStreamAndPreview failed", e);
+        } finally {
+          updateStreamAndPreviewPromise = null;
+        }
+      })();
   }
 
   function selectVideoDevice(index: number) {
@@ -754,6 +843,7 @@ export const App = function () {
       return (await initReceiver()) ?? (await initSender(customWait));
     }),
     senderConnectToWebcam: syncify(senderConnectToWebcam),
+    stopWebcam: stopWebcam,
     senderEventsConnected: senderEventsConnected,
     selectVideoDevice: selectVideoDevice,
     increaseVideoBitrate: increaseVideoBitrate,
