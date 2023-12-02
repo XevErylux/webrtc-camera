@@ -703,7 +703,7 @@ export const App = function () {
   }
 
   async function sendSignalToWebserver(signalData: SimplePeer.SignalData) {
-    if (!getShouldBeSending()) return;
+    if (signalData.type === "offer" && !getShouldBeSending()) return;
 
     const sendSignalContainer = document.getElementById(
       "send-signal-container",
@@ -951,10 +951,7 @@ export const App = function () {
 
       log(`receiverPeer.close`);
 
-      const shouldBeSending = getShouldBeSending();
-      if (!shouldBeSending) {
-        updateStatus("Stopped by user. Click Start to continue sending.");
-      } else if (!videoPeer.destroyed || peer === videoPeer || !peer) {
+      if (!videoPeer.destroyed || peer === videoPeer || !peer) {
         updateStatus("Disconnected.");
 
         const maxSteps = 10;
