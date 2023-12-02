@@ -75,3 +75,7 @@ div.sender-main span#status:not(:empty) {
   margin-bottom: 33vh;
   pointer-events: none;
 }
+
+nav:hover {
+  background: rgba(255, 255, 255, 0.1);
+}

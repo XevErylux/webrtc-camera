@@ -283,8 +283,9 @@ export const App = function () {
     if (peer?.destroyed === false) {
       peer?.signal(answer);
     } else {
-      const text =
-        "Peer was already destroyed when receiving answer. Recreating...";
+      const text = !getShouldBeSending()
+        ? "Stopped by user. Click Start to continue sending."
+        : "Peer was already destroyed when receiving answer. Recreating...";
       updateStatus(text);
 
       peer?.destroy();
@@ -417,6 +418,27 @@ export const App = function () {
       </nav>,
     ];
 
+    const videoSendActivation = getConfig("videoSendActivation", false);
+    const videoSendActivationSelection: Children = [
+      <nav>
+        <ul>
+          <li>Now sending to receiver?</li>
+        </ul>
+        <ul>
+          <li>
+            <a
+              href="#"
+              role="button"
+              id="videoToggleSending"
+              onclick={`${call("toggleSending")}();return true;`}
+            >
+              {videoSendActivation ? "Stop" : "Start"}
+            </a>
+          </li>
+        </ul>
+      </nav>,
+    ];
+
     const connId = keyPair.publicKey.toString("hex");
     return String(
       <div
@@ -429,6 +451,7 @@ export const App = function () {
         {videoInputSelection}
         <span>Video Bitrate</span>
         {videoBitrateSelection}
+        {videoSendActivationSelection}
         <div id="send-signal-container" />
         <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
         <br />
@@ -438,16 +461,19 @@ export const App = function () {
           sse-swap="connected"
         />
         <button
-          id="stop-webcam"
-          onclick={`${call("stopWebcam")}();return true;`}
+          id="restart-webcam"
+          onclick={`${call("restartWebcam")}();return true;`}
         >
-          {/* Because it would start anyway if a client is connected, we call it just restart. */}
           Restart Webcam
         </button>
         <div id="video-preview-container" />
         <span id="status" />
         <div sse-swap="answer">
-          <div aria-busy="true">Waiting for receiver to provide an answer.</div>
+          <div aria-busy="true">
+            {videoSendActivation
+              ? "Waiting for receiver to provide an answer."
+              : "Click Start to begin sending."}
+          </div>
         </div>
         Receiver Count:{" "}
         <span sse-swap="receiver-count" hx-swap="innerHTML">
@@ -459,7 +485,7 @@ export const App = function () {
     );
   }
 
-  async function stopWebcam(): Promise<void> {
+  async function restartWebcam(): Promise<void> {
     const stream = videoMediaStream?.mediaStream;
     if (stream) {
       if (peer?.destroyed === false) {
@@ -470,7 +496,10 @@ export const App = function () {
         }
       }
       videoMediaStream = null;
-      updateVideoDevicePreview("sender");
+      updateStreamAndPreview();
+      if (senderOffer) {
+        sendSignalToWebserver(senderOffer);
+      }
     }
   }
 
@@ -674,6 +703,8 @@ export const App = function () {
   }
 
   async function sendSignalToWebserver(signalData: SimplePeer.SignalData) {
+    if (!getShouldBeSending()) return;
+
     const sendSignalContainer = document.getElementById(
       "send-signal-container",
     ) as HTMLDivElement | null;
@@ -745,6 +776,63 @@ export const App = function () {
     return "";
   }
 
+  async function sendClearOfferToWebserver() {
+    const sendSignalContainer = document.getElementById(
+      "send-signal-container",
+    ) as HTMLDivElement | null;
+
+    try {
+      log("clear key: offer");
+
+      // Clear offer to the webserver so clients stop refreshing all the time
+      if (sendSignalContainer) {
+        if (!keyPair) {
+          sendSignalContainer.innerHTML = `Could not clear offer, because the keyPair is not initialized yet.`;
+          sendSignalContainer.style.color = "red";
+        } else {
+          updateStatus(`Clearing offer information from the webserver`);
+
+          sendSignalContainer.innerHTML = String(
+            <>
+              <form
+                hx-delete={`/connections/offer`}
+                hx-target="this"
+                hx-swap="outerHTML"
+                hx-trigger="load"
+                hx-include="[name='publicKey']"
+              >
+                <input
+                  type="hidden"
+                  name="publicKey"
+                  value={keyPair.publicKey.toString("hex")}
+                />
+              </form>
+            </>,
+          );
+
+          const form = sendSignalContainer.firstElementChild as
+            | HTMLFormElement
+            | undefined;
+          if (form) {
+            htmx.process(form);
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (sendSignalContainer) {
+        sendSignalContainer.innerHTML = `Could not clear offer, because of an unknown error.`;
+        sendSignalContainer.style.color = "red";
+        return;
+      }
+      console.log(err);
+    }
+  }
+
+  function sendClearOfferFinished() {
+    updateStatus("Stopped by user. Click Start to continue sending.");
+    return "";
+  }
+
   function updateStatus(text: string) {
     var statusEl = document.getElementById("status") as HTMLSpanElement | null;
     if (statusEl) {
@@ -808,6 +896,10 @@ export const App = function () {
     return videoPeer;
   }
 
+  function getShouldBeSending() {
+    return getConfig("videoSendActivation", false);
+  }
+
   function initReceiverPeer() {
     log("initReceiverPeer");
 
@@ -859,7 +951,10 @@ export const App = function () {
 
       log(`receiverPeer.close`);
 
-      if (!videoPeer.destroyed || peer === videoPeer || !peer) {
+      const shouldBeSending = getShouldBeSending();
+      if (!shouldBeSending) {
+        updateStatus("Stopped by user. Click Start to continue sending.");
+      } else if (!videoPeer.destroyed || peer === videoPeer || !peer) {
         updateStatus("Disconnected.");
 
         const maxSteps = 10;
@@ -910,12 +1005,22 @@ export const App = function () {
   function updatePeer(type: "sender" | "receiver") {
     log(`updatePeer(${type})`);
     if (type === "sender") {
+      const shouldBeSending = getShouldBeSending();
+      if (!shouldBeSending) {
+        if (peer) {
+          peer.destroy();
+          peer = null;
+        }
+        return;
+      }
+
       peer = peer?.destroyed === false ? peer : initSenderPeer();
 
       let streamAlreadyAdded = false;
       const streams = peer.streams;
+
       for (const stream of peer.streams) {
-        if (stream === videoMediaStream?.mediaStream) {
+        if (shouldBeSending && stream === videoMediaStream?.mediaStream) {
           streamAlreadyAdded = true;
           continue;
         }
@@ -936,6 +1041,7 @@ export const App = function () {
       log(
         `updatePeer(${type}): { videoMediaStream: ${videoMediaStream?.mediaStream?.id}, streamAlreadyAdded: ${streamAlreadyAdded} }`,
       );
+
       if (videoMediaStream && !streamAlreadyAdded) {
         peer.addStream(videoMediaStream.mediaStream);
         streams.push(videoMediaStream.mediaStream);
@@ -1052,6 +1158,23 @@ export const App = function () {
     changeVideoBitrate(1);
   }
 
+  function toggleSending() {
+    const videoToggleSending = document.getElementById(
+      "videoToggleSending",
+    ) as HTMLButtonElement | null;
+    if (videoToggleSending) {
+      const value = !getConfig("videoSendActivation", false);
+      videoToggleSending.innerText = value ? "Stop" : "Start";
+      setConfig("videoSendActivation", value);
+
+      updateStreamAndPreview();
+
+      if (!value) {
+        sendClearOfferToWebserver();
+      }
+    }
+  }
+
   window.onhashchange = async function () {
     const container = document.querySelector("main.container");
     if (!container) return;
@@ -1069,13 +1192,16 @@ export const App = function () {
       return (await initReceiver()) ?? (await initSender(customWait));
     }),
     senderConnectToWebcam: syncify(senderConnectToWebcam),
-    stopWebcam: stopWebcam,
+    restartWebcam: restartWebcam,
     senderEventsConnected: senderEventsConnected,
     selectVideoDevice: selectVideoDevice,
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
+    toggleSending: toggleSending,
     updateStreamAndPreview: updateStreamAndPreview,
     sendSignalToWebserverFinished: sendSignalToWebserverFinished,
+    sendClearOfferToWebserver: sendClearOfferToWebserver,
+    sendClearOfferFinished: sendClearOfferFinished,
     acceptReceiverId: syncify(
       (customWait: CustomWait, data: [unknown, { id: number }]) => {
         return acceptReceiverId(data[1].id);

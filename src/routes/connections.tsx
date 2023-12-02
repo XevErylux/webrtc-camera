@@ -125,9 +125,11 @@ class State {
     );
   }
 
-  setEncryptedOffer(data: string) {
-    this.encryptedOffer = data;
-    this.send("receiver", this.renderOffer(data), "offer");
+  setEncryptedOffer(data: string | null) {
+    this.encryptedOffer = data ?? undefined;
+    if (data) {
+      this.send("receiver", this.renderOffer(data), "offer");
+    }
   }
 
   private renderAnswer(encryptedAnswer: string) {
@@ -299,6 +301,35 @@ router.post("/:type", function (req, res, next) {
       String(
         <form
           hx-get="js:app.sendSignalToWebserverFinished"
+          hx-target="this"
+          hx-ext="serverless"
+          hx-swap="outerHTML"
+          hx-trigger="load"
+        ></form>,
+      ),
+    );
+});
+
+interface DeleteSignalRequest {
+  publicKey: string;
+}
+
+router.delete("/offer", function (req, res, next) {
+  const body = req.body as Partial<DeleteSignalRequest>;
+  if (!body.publicKey) {
+    res.sendStatus(400);
+    return;
+  }
+
+  const state = State.get(body.publicKey);
+  state.setEncryptedOffer(null);
+
+  res
+    .status(200)
+    .send(
+      String(
+        <form
+          hx-get="js:app.sendClearOfferFinished"
           hx-target="this"
           hx-ext="serverless"
           hx-swap="outerHTML"

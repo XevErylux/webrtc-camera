@@ -7,6 +7,7 @@ export interface Settings {
   secretKey: string;
   videoInputDevice: VideoInputDeviceSelection[];
   videoBitrate: number;
+  videoSendActivation: boolean;
 }
 
 export const minVideoBitrateValue = 1;
