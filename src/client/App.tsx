@@ -546,6 +546,7 @@ export const App = function () {
         video.width = 320;
         video.height = (320 * 9) / 16;
         video.muted = type === "sender";
+        let recentlyClosedFullscreen = false;
         video.onclick = function (e) {
           try {
             e.stopPropagation();
@@ -557,6 +558,8 @@ export const App = function () {
 
             if (document.fullscreenElement === video) {
               document.exitFullscreen();
+              recentlyClosedFullscreen = true;
+              setTimeout(() => (recentlyClosedFullscreen = false), 150);
             } else {
               video.requestFullscreen();
             }
@@ -565,6 +568,10 @@ export const App = function () {
         if (type === "receiver") {
           video.onpause = function (e) {
             playVideo(video);
+          };
+        } else {
+          video.onpause = function (e) {
+            if (recentlyClosedFullscreen) playVideo(video);
           };
         }
         videoPreviewContainer.appendChild(video);
