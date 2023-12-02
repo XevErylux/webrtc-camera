@@ -3,6 +3,75 @@ main.container nav.container {
   padding-right: 0.5rem;
 }
 
+form[hx-trigger="load"] {
+  display: none;
+}
+
 #send-signal-container:empty {
   display: inline-block;
+}
+
+div#messages {
+  overflow-y: scroll;
+  height: 150px;
+}
+
+div#messages > span {
+  display: block;
+}
+
+div.receiver-main video,
+div.receiver-main div#video-preview-container {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  right: 0px;
+  bottom: 0px;
+  width: 100%;
+  height: 100%;
+  background: black;
+}
+
+div.receiver-main span#status,
+div.receiver-main div#send-signal-container,
+div.receiver-main span#sending-offer {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  padding: 8px;
+  width: 50vw;
+  background: black;
+  font-size: 1.5em;
+}
+
+div.receiver-main span#status:empty,
+div.receiver-main div#send-signal-container:empty {
+  display: none;
+}
+
+div.receiver-main div#messages {
+  display: none;
+}
+
+div.sender-main span#status:not(:empty) {
+  display: "block";
+}
+
+.log-header {
+  margin-top: 8px;
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+.video-message {
+  color: red;
+  position: absolute;
+  font-size: 1.5em;
+  font-weight: bold;
+  width: 33vw;
+  margin-left: 33vw;
+  margin-right: 33vw;
+  margin-top: 33vh;
+  margin-bottom: 33vh;
+  pointer-events: none;
 }

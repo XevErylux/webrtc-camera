@@ -180,24 +180,37 @@ export const App = function () {
     // If we have a secret key, we must construct
     // the public key, fetch the offer and answer it.
     return String(
-      <div hx-ext="sse" sse-connect={`/connections/${connId}/receiver-events`}>
+      <div
+        hx-ext="sse"
+        sse-connect={`/connections/${connId}/receiver-events`}
+        class="receiver-main"
+      >
         <div id="video-preview-container" />
-        <div sse-swap="offer">
-          <div aria-busy="true">
-            Waiting for sender to provide the offer.
-            <br />
-            <br />
-            If it takes longer, try to share the link from the sender again.
-          </div>
-        </div>
+        <div id="receiver-id" sse-swap="receiver-id" />
+        <span id="status" />
+        <div id="offer-waiting" sse-swap="offer" />
       </div>,
     );
+  }
+
+  let receiverId: number | undefined;
+
+  async function acceptReceiverId(id: number): Promise<string> {
+    receiverId = id;
+
+    updateStatus(
+      `ReceiverId set to ${id}. Waiting for sender to provide the offer.\r\n\r\n\r\nIf it takes longer, try to share the link from the sender again.`,
+    );
+
+    return "";
   }
 
   let senderOffer: SimplePeer.SignalData | undefined;
   let receiverAnswer: SimplePeer.SignalData | undefined;
 
   async function acceptOffer(encryptedOffer: string): Promise<string> {
+    updateStatus("Offer obtained");
+
     if (!keyPair) {
       return String(
         <span style={{ color: "red" }}>
@@ -229,19 +242,21 @@ export const App = function () {
 
     updatePeer("receiver");
 
+    updateStatus("Offer obtained, answering...");
+
     return String(
-      <div aria-busy="true">
-        Offer obtained, answering...
-        <br />
+      <div>
         <div id="send-signal-container" />
-        <div id="messages" safe>
-          {messages}
-        </div>
+        <div id="send-offer-request-container" />
+        <div class="log-header">Log</div>
+        <div id="messages">{renderMessages(messages)}</div>
       </div>,
     );
   }
 
   async function acceptAnswer(encryptedAnswer: string): Promise<string> {
+    updateStatus("Answer obtained");
+
     if (!keyPair) {
       return String(
         <span style={{ color: "red" }}>
@@ -264,27 +279,25 @@ export const App = function () {
 
     receiverAnswer = answer;
 
-    console.log("acceptAnswer: peer?.signal");
+    log("acceptAnswer: peer?.signal");
     if (peer?.destroyed === false) {
       peer?.signal(answer);
     } else {
       const text =
         "Peer was already destroyed when receiving answer. Recreating...";
-      log(`acceptAnswer: ${text}`);
+      updateStatus(text);
 
       peer?.destroy();
       peer = null;
 
       updatePeer("sender");
 
-      return String(<div aria-busy="true">{text}</div>);
+      return "";
     }
 
-    return String(
-      <div aria-busy="true">
-        Answer obtained, establish direct connection...
-      </div>,
-    );
+    updateStatus("Answer obtained, establish direct connection...");
+
+    return "";
   }
 
   async function initSender(customWait: CustomWait): Promise<string> {
@@ -407,6 +420,7 @@ export const App = function () {
     const connId = keyPair.publicKey.toString("hex");
     return String(
       <div
+        class="sender-main"
         hx-ext="sse"
         sse-connect={`/connections/${connId}/sender-events`}
         hx-on={`htmx:load: ${call("updateStreamAndPreview", false)}()`}
@@ -416,10 +430,6 @@ export const App = function () {
         <span>Video Bitrate</span>
         {videoBitrateSelection}
         <div id="send-signal-container" />
-        <span safe>PublicKey: {keyPair.publicKey.toString("hex")}</span>
-        <br />
-        <span safe> SecretKey: {keyPair.secretKey.toString("hex")}</span>
-        <br />
         <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
         <br />
         <div
@@ -431,28 +441,20 @@ export const App = function () {
           id="stop-webcam"
           onclick={`${call("stopWebcam")}();return true;`}
         >
-          Stop Webcam
+          {/* Because it would start anyway if a client is connected, we call it just restart. */}
+          Restart Webcam
         </button>
         <div id="video-preview-container" />
+        <span id="status" />
         <div sse-swap="answer">
           <div aria-busy="true">Waiting for receiver to provide an answer.</div>
         </div>
-        <div id="messages"></div>
-        <br />
-        Receiver Count: <span sse-swap="receiver-count">?</span>
-        <br />
-        <Button hx-get="/connections" hx-target="this" hx-swap="outerHTML">
-          From Server
-        </Button>
-        <Button
-          hx-get={call("addDiv")}
-          hx-target="this"
-          hx-ext="serverless"
-          hx-swap="outerHTML"
-        >
-          From Client
-        </Button>
-        Some text below buttons
+        Receiver Count:{" "}
+        <span sse-swap="receiver-count" hx-swap="innerHTML">
+          0
+        </span>
+        <div class="log-header">Log</div>
+        <div id="messages">{renderMessages(messages)}</div>
       </div>,
     );
   }
@@ -460,10 +462,12 @@ export const App = function () {
   async function stopWebcam(): Promise<void> {
     const stream = videoMediaStream?.mediaStream;
     if (stream) {
-      peer?.removeStream(stream);
-      const tracks = stream.getTracks();
-      if (tracks) {
-        for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+      if (peer?.destroyed === false) {
+        peer?.removeStream(stream);
+        const tracks = stream.getTracks();
+        if (tracks) {
+          for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+        }
       }
       videoMediaStream = null;
       updateVideoDevicePreview("sender");
@@ -473,6 +477,58 @@ export const App = function () {
   function senderEventsConnected() {
     if (senderOffer) {
       sendSignalToWebserver(senderOffer);
+    }
+  }
+
+  async function setPlayVideoMessage(
+    video: HTMLVideoElement,
+    message: string | undefined,
+  ) {
+    if (message === undefined) {
+      const nextSibling = video.nextElementSibling;
+      if (nextSibling) {
+        nextSibling.remove();
+        log("setPlayVideoMessage: Removed play message");
+      }
+    } else {
+      var nextSibling = video.nextElementSibling as HTMLDivElement | null;
+      if (!nextSibling) {
+        video.insertAdjacentHTML(
+          "afterend",
+          String(
+            <div class="video-message" safe>
+              {message}
+            </div>,
+          ),
+        );
+        log("setPlayVideoMessage: Inserted play message");
+      } else {
+        nextSibling.innerText = message;
+        log("setPlayVideoMessage: Updated play message");
+      }
+    }
+  }
+
+  async function playVideo(video: HTMLVideoElement) {
+    try {
+      await video.play();
+      setPlayVideoMessage(video, undefined);
+    } catch (err: unknown) {
+      if (err instanceof DOMException) {
+        if (err.name === "NotAllowedError") {
+          const text = `Playback blocked by the browser, because the user didn't interacted
+           with the document first. Click into the video element, to start
+           playback.`;
+          log(
+            "playVideo: Playback blocked because user didn't interacted first.",
+          );
+          setPlayVideoMessage(video, text);
+
+          return;
+        }
+      }
+      console.error(err);
+      debugger;
     }
   }
 
@@ -489,9 +545,16 @@ export const App = function () {
         let video = document.createElement("video");
         video.width = 320;
         video.height = (320 * 9) / 16;
-        video.muted = true;
-        video.onclick = function () {
+        video.muted = type === "sender";
+        video.onclick = function (e) {
           try {
+            e.stopPropagation();
+
+            if (video.paused) {
+              playVideo(video);
+              return;
+            }
+
             if (document.fullscreenElement === video) {
               document.exitFullscreen();
             } else {
@@ -499,6 +562,11 @@ export const App = function () {
             }
           } catch {}
         };
+        if (type === "receiver") {
+          video.onpause = function (e) {
+            playVideo(video);
+          };
+        }
         videoPreviewContainer.appendChild(video);
         return video;
       })();
@@ -509,24 +577,92 @@ export const App = function () {
       video.srcObject = null;
     } else {
       video.srcObject = videoMediaStream.mediaStream;
-      video.play();
+      playVideo(video);
     }
   }
 
-  var messages = "";
+  var messages: Array<string> = [];
+
+  function renderMessages(messages: Array<string>): Children {
+    return messages.slice(0, 50).map((item) => <span safe>{item}</span>);
+  }
 
   function log(message: string) {
     console.log(message);
     var elMessages = document.getElementById("messages");
 
-    if (messages === "") {
-      messages = message;
-    } else {
-      messages += "\r\n" + message;
-    }
-
+    messages.unshift(message);
     if (elMessages) {
-      elMessages.innerText = messages;
+      elMessages.innerHTML = String(<>{renderMessages(messages)}</>);
+    }
+  }
+
+  async function receiverRequestOffer() {
+    const sendOfferRequestContainer = document.getElementById(
+      "send-offer-request-container",
+    ) as HTMLDivElement | null;
+
+    try {
+      log("receiverRequestOffer()");
+
+      // Send offer to the webserver so clients obtain and can answer it
+      if (sendOfferRequestContainer) {
+        if (!keyPair) {
+          sendOfferRequestContainer.innerHTML = `Could not send offer request, because the keyPair is not initialized yet.`;
+          sendOfferRequestContainer.style.color = "red";
+          updateStatus("Requesting offer failed - KeyPair missing");
+        } else if (!receiverId) {
+          sendOfferRequestContainer.innerHTML = `Could not send offer request, because the receiverId is not initialized yet.`;
+          sendOfferRequestContainer.style.color = "red";
+          updateStatus("Requesting offer failed - ReceiverId missing");
+        } else {
+          // Encrypt signalData with keypair
+          updateStatus("Sending offer request to the webserver");
+
+          sendOfferRequestContainer.innerHTML = String(
+            <>
+              <form
+                hx-post={`/connections/offer/request`}
+                hx-target="this"
+                hx-swap="outerHTML"
+                hx-trigger="load"
+                hx-include="[name='publicKey'],[name='connectionId']"
+              >
+                <input
+                  type="hidden"
+                  name="publicKey"
+                  value={keyPair.publicKey.toString("hex")}
+                />
+                <input
+                  type="hidden"
+                  name="connectionId"
+                  value={receiverId.toString()}
+                />
+              </form>
+            </>,
+          );
+
+          const form = sendOfferRequestContainer.firstElementChild as
+            | HTMLFormElement
+            | undefined;
+          if (form) {
+            htmx.process(form);
+          }
+        }
+
+        updateStatus("Requesting offer");
+      }
+    } catch (err: unknown) {
+      if (sendOfferRequestContainer) {
+        sendOfferRequestContainer.innerHTML = `Could not request offer, because of an unknown error.`;
+        sendOfferRequestContainer.style.color = "red";
+        log(
+          `Could not request offer, because of an unknown error. Error: ${err}`,
+        );
+        updateStatus("Requesting offer failed - Unknown error");
+        return;
+      }
+      console.log(err);
     }
   }
 
@@ -536,7 +672,7 @@ export const App = function () {
     ) as HTMLDivElement | null;
 
     try {
-      console.log("send key: " + signalData.type);
+      log("send key: " + signalData.type);
 
       // Send offer to the webserver so clients obtain and can answer it
       if (sendSignalContainer) {
@@ -550,19 +686,19 @@ export const App = function () {
             JSON.stringify(signalData),
           );
 
+          updateStatus(
+            `Sending encrypted ${signalData.type} information to the webserver`,
+          );
+
           sendSignalContainer.innerHTML = String(
             <>
               <form
-                aria-busy="true"
                 hx-post={`/connections/${signalData.type}`}
                 hx-target="this"
                 hx-swap="outerHTML"
                 hx-trigger="load"
                 hx-include="[name='publicKey'],[name='signalData']"
               >
-                <span>
-                  Sending encrypted offer information to the webserver
-                </span>
                 <input
                   type="hidden"
                   name="publicKey"
@@ -592,6 +728,26 @@ export const App = function () {
         return;
       }
       console.log(err);
+    }
+  }
+
+  function sendSignalToWebserverFinished() {
+    updateStatus(
+      "Waiting for other client...\r\n\r\n\r\nIf it takes longer, try to share the link from the sender again.",
+    );
+    return "";
+  }
+
+  function updateStatus(text: string) {
+    var statusEl = document.getElementById("status") as HTMLSpanElement | null;
+    if (statusEl) {
+      statusEl.innerText = text;
+      if (text === "") {
+        statusEl.removeAttribute("aria-busy");
+      } else {
+        statusEl.setAttribute("aria-busy", "true");
+      }
+      log(`updateStatus(): ${text}`);
     }
   }
 
@@ -625,6 +781,7 @@ export const App = function () {
 
     videoPeer.on("connect", function () {
       log(`senderPeer(${senderPeerId}).connected`);
+      updateStatus("");
     });
 
     videoPeer.on("stream", function (stream) {
@@ -633,10 +790,12 @@ export const App = function () {
 
     videoPeer.on("close", function () {
       log(`senderPeer(${senderPeerId}).close`);
+      updateStatus("Disconnected");
     });
 
     videoPeer.on("error", function (err) {
       log(`senderPeer(${senderPeerId}).error: ${err}`);
+      updateStatus("Error");
     });
 
     return videoPeer;
@@ -655,12 +814,28 @@ export const App = function () {
       log(`receiverPeer.signal: ${data.type}`);
       senderOffer = data;
       sendSignalToWebserver(data);
+
+      setTimeout(() => {
+        if (videoPeer.destroyed) {
+          // This is probably already reconnected with a new peer.
+          // So ignore this timeout event.
+          return;
+        }
+
+        if (!videoPeer.connected) {
+          videoPeer.destroy();
+          videoMediaStream = null;
+          receiverRequestOffer();
+        }
+      }, 10000);
     });
 
     videoPeer.on("connect", function () {
       updateVideoDevicePreview("receiver");
 
       log(`receiverPeer.connected`);
+
+      updateStatus("");
     });
 
     videoPeer.on("stream", function (stream) {
@@ -676,6 +851,50 @@ export const App = function () {
       // updateVideoDevicePreview("receiver");
 
       log(`receiverPeer.close`);
+
+      if (!videoPeer.destroyed || peer === videoPeer || !peer) {
+        updateStatus("Disconnected.");
+
+        const maxSteps = 10;
+        let remainingSteps = maxSteps;
+
+        const countdownInterval = setInterval(function () {
+          if (--remainingSteps <= 0 || (peer && videoPeer !== peer)) {
+            clearInterval(countdownInterval);
+            return;
+          }
+
+          if (!videoPeer.connected) {
+            updateStatus(
+              `Disconnected. Try reconnecting in ${remainingSteps} seconds...`,
+            );
+          }
+        }, 1000);
+
+        setTimeout(() => {
+          if (peer && videoPeer !== peer) {
+            // This is probably already reconnected with a new peer.
+            // So ignore this timeout event.
+            clearInterval(countdownInterval);
+            return;
+          }
+
+          if (!videoPeer.connected) {
+            videoPeer.destroy();
+            videoMediaStream = null;
+            receiverRequestOffer();
+            clearInterval(countdownInterval);
+          }
+        }, maxSteps * 1000);
+      }
+    });
+
+    videoPeer.on("error", function (err) {
+      log(`receiverPeer.error: ${err}`);
+
+      if (!videoPeer.destroyed) {
+        updateStatus("Error");
+      }
     });
 
     return videoPeer;
@@ -735,7 +954,7 @@ export const App = function () {
             sender
               .setParameters(parameters)
               .then(() => {
-                console.log(
+                log(
                   `Bitrate changed successfuly to ${maxBitrateInBitsPerSecond}`,
                 );
               })
@@ -849,6 +1068,12 @@ export const App = function () {
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
     updateStreamAndPreview: updateStreamAndPreview,
+    sendSignalToWebserverFinished: sendSignalToWebserverFinished,
+    acceptReceiverId: syncify(
+      (customWait: CustomWait, data: [unknown, { id: number }]) => {
+        return acceptReceiverId(data[1].id);
+      },
+    ),
     acceptOffer: syncify(
       (customWait: CustomWait, data: [unknown, { offer: string }]) => {
         return acceptOffer(data[1].offer);

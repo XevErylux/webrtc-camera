@@ -35,12 +35,45 @@ class State {
   ): Events {
     const listener = new Events(this, type, response);
     this.listeners.push(listener);
+
+    this.sendReceiverId(listener);
+    this.sendRequestedOffer(listener);
+
+    listener.send("sender", this.renderConnected(), "connected");
+
+    this.sendReceiverCount();
+
+    return listener;
+  }
+
+  sendReceiverCount() {
+    this.send("all", this.renderReceiverCount(), "receiver-count");
+  }
+
+  private sendReceiverId(listener: Events) {
+    listener.send(
+      "receiver",
+      this.renderReceiverId(listener.id),
+      "receiver-id",
+    );
+  }
+
+  sendRequestedOffer(listener: Events) {
     if (this.encryptedOffer) {
       listener.send("receiver", this.renderOffer(this.encryptedOffer), "offer");
     }
-    listener.send("sender", this.renderConnected(), "connected");
+  }
 
-    return listener;
+  sendRequestedOfferById(id: number) {
+    for (const listener of this.listeners) {
+      // console.log(`sendRequestedOfferById(): listener.id: ${listener.id}`);
+      if (listener.id === id) {
+        this.sendRequestedOffer(listener);
+        return;
+      }
+    }
+
+    console.log(`Could not find client:${id} to send requested offer`);
   }
 
   closeListener(listener: Events): boolean {
@@ -55,6 +88,27 @@ class State {
 
   private renderConnected() {
     return String(<div hx-on="htmx:load: app.senderEventsConnected()" />);
+  }
+
+  private renderReceiverCount() {
+    const receiverCount = this.listeners.filter(
+      (x) => x.type === "receiver",
+    ).length;
+    return String(<>{receiverCount}</>);
+  }
+
+  private renderReceiverId(id: number) {
+    return String(
+      <form
+        hx-get="js:app.acceptReceiverId"
+        hx-target="this"
+        hx-ext="serverless"
+        hx-swap="outerHTML"
+        hx-trigger="load"
+      >
+        <input type="hidden" name="id" value={id.toString()} />
+      </form>,
+    );
   }
 
   private renderOffer(encryptedOffer: string) {
@@ -97,7 +151,7 @@ class State {
     this.send("sender", this.renderAnswer(data), "answer");
   }
 
-  private send(type: ListenerType, data: string, event?: string) {
+  private send(type: ListenerType | "all", data: string, event?: string) {
     for (const listener of this.listeners) {
       listener.send(type, data, event);
     }
@@ -107,12 +161,16 @@ class State {
 class Events {
   constructor(
     private readonly state: State,
-    private readonly type: ListenerType,
+    public readonly type: ListenerType,
     private readonly response: Response<any, Record<string, any>, number>,
   ) {}
 
-  send(type: ListenerType, data: string, event?: string) {
-    if (this.type !== type) return;
+  get id() {
+    return this.response.socket?.remotePort ?? 0;
+  }
+
+  send(type: ListenerType | "all", data: string, event?: string) {
+    if (type !== "all" && this.type !== type) return;
 
     const response = this.response;
     if (event) {
@@ -175,6 +233,7 @@ router.get("/:publicKey/:type-events", function (req, res, next) {
     res.end();
     senderEvents.free();
     clearTimeout(keepAliveTimeout);
+    senderState.sendReceiverCount();
   });
 
   let keepAliveMS = 60 * 1000;
@@ -190,6 +249,24 @@ router.get("/:publicKey/:type-events", function (req, res, next) {
   keepAliveTimeout = setTimeout(keepAlive, keepAliveMS);
 });
 
+interface OfferRequest {
+  publicKey: string;
+  connectionId: string;
+}
+
+router.post("/offer/request", function (req, res, next) {
+  const body = req.body as Partial<OfferRequest>;
+  if (!body.publicKey || !body.connectionId) {
+    res.sendStatus(400);
+    return;
+  }
+
+  const state = State.get(body.publicKey);
+  state.sendRequestedOfferById(parseInt(body.connectionId));
+
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send("");
+});
 interface SignalRequest {
   publicKey: string;
   signalData: string;
@@ -215,7 +292,20 @@ router.post("/:type", function (req, res, next) {
     state.setEncryptedAnswer(body.signalData);
   }
   res.setHeader("Content-Type", "text/html");
-  res.status(200).send("");
+
+  res
+    .status(200)
+    .send(
+      String(
+        <form
+          hx-get="js:app.sendSignalToWebserverFinished"
+          hx-target="this"
+          hx-ext="serverless"
+          hx-swap="outerHTML"
+          hx-trigger="load"
+        ></form>,
+      ),
+    );
 });
 
 export default router;
