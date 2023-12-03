@@ -352,42 +352,56 @@ export const App = function () {
     );
 
     /* get user's permission to muck around with video devices */
-    const tempStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-    });
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    customWait(String(<div aria-busy="true" />));
+    const videoInputSelection: Children = await (async function () {
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          customWait(String(<div aria-busy="true" />));
 
-    videoDevices = devices.filter((x) => x.kind === "videoinput");
-    const initialSelection = initialVideoDevice(videoDevices);
+          videoDevices = devices.filter((x) => x.kind === "videoinput");
+          const initialSelection = initialVideoDevice(videoDevices);
 
-    const videoInputSelection: Children = [
-      <details role="list">
-        <summary
-          aria-haspopup="listbox"
-          id="videoInputSelection"
-          data-index={initialSelection?.index}
-          safe
-        >
-          {initialSelection?.label}
-        </summary>
-        <ul role="listbox">
-          {videoDevices.map((device, index) => (
-            <li>
-              <a
-                onclick={`${call("selectVideoDevice")}(${index});return true;`}
+          const videoInputSelection: Children = [
+            <details role="list">
+              <summary
+                aria-haspopup="listbox"
+                id="videoInputSelection"
+                data-index={initialSelection?.index}
+                safe
               >
-                <span safe>{device.label}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </details>,
-    ];
+                {initialSelection?.label}
+              </summary>
+              <ul role="listbox">
+                {videoDevices.map((device, index) => (
+                  <li>
+                    <a
+                      onclick={`${call(
+                        "selectVideoDevice",
+                      )}(${index});return true;`}
+                    >
+                      <span safe>{device.label}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>,
+          ];
 
-    /* close the temp stream */
-    const tracks = tempStream.getTracks();
-    if (tracks) for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+          return videoInputSelection;
+        } finally {
+          /* close the temp stream */
+          const tracks = tempStream.getTracks();
+          if (tracks) for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+        }
+      } catch (err: unknown) {
+        debugger;
+        if (err instanceof DOMException) {
+        }
+      }
+    })();
 
     const initialVideoBitrate = getConfig("videoBitrate", 12);
     const videoBitrateSelection: Children = [
@@ -421,9 +435,25 @@ export const App = function () {
     const videoSendActivationSelection: Children = [
       <nav>
         <ul>
-          <li>Now sending to receiver?</li>
+          <li>
+            <span id="nowSendingText">Activate sending to receiver?</span>{" "}
+            <span
+              id="nowSendingAnswer"
+              class={videoSendActivation ? "sending" : ""}
+            >
+              {videoSendActivation ? "yes" : "no"}
+            </span>
+          </li>
         </ul>
         <ul>
+          <li>
+            <div
+              id="sendingIndicator"
+              style={{
+                background: videoSendActivation ? "red" : undefined,
+              }}
+            />
+          </li>
           <li>
             <button
               role="button"
@@ -1182,6 +1212,23 @@ export const App = function () {
 
       if (!value) {
         sendClearOfferToWebserver();
+      }
+
+      const sendingIndicator = document.getElementById("sendingIndicator");
+      if (sendingIndicator) {
+        sendingIndicator.style.background = value ? "red" : "";
+      }
+
+      const nowSendingAnswer = document.getElementById("nowSendingAnswer");
+      if (nowSendingAnswer) {
+        if (value) {
+          if (!nowSendingAnswer.classList.contains("sending")) {
+            nowSendingAnswer.classList.add("sending");
+          }
+        } else {
+          nowSendingAnswer.classList.remove("sending");
+        }
+        nowSendingAnswer.innerText = value ? "yes" : "no";
       }
     }
   }

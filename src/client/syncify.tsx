@@ -100,6 +100,7 @@ export function syncify<
         completed();
       },
       (err) => {
+        debugger;
         console.error(err);
         end.completed = function () {
           delete syncified[id];

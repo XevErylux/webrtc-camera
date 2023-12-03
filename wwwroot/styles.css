@@ -7,8 +7,13 @@ form[hx-trigger="load"] {
   display: none;
 }
 
-#send-signal-container:empty {
-  display: inline-block;
+nav.container button#videoBitrateMinus,
+nav.container button#videoBitratePlus {
+  margin-bottom: 0px;
+}
+
+#send-signal-container {
+  display: none;
 }
 
 div#messages {
@@ -83,4 +88,22 @@ nav:hover {
 nav a#shareLink {
   padding: var(--form-element-spacing-vertical)
     var(--form-element-spacing-horizontal);
+}
+
+div#sendingIndicator {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+}
+
+span#nowSendingAnswer {
+  font-weight: "bold";
+}
+
+span#nowSendingAnswer.sending {
+  color: green;
+}
+
+span#nowSendingAnswer:not(.sending) {
+  color: red;
 }
