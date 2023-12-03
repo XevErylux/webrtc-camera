@@ -451,28 +451,44 @@ export const App = function () {
         {videoBitrateSelection}
         {videoSendActivationSelection}
         <div id="send-signal-container" />
-        <a href={`/#key=${keyPair.secretKey.toString("hex")}`}>Share</a>
+        <nav>
+          <ul>
+            <li>
+              <button
+                id="restart-webcam"
+                onclick={`${call("restartWebcam")}();return true;`}
+              >
+                Restart Webcam
+              </button>
+            </li>
+          </ul>
+          <ul>
+            <li>
+              <a
+                role="button"
+                href={`/#key=${keyPair.secretKey.toString("hex")}`}
+                onclick={`${call("shareLink")}(this.href);return false;`}
+                id="shareLink"
+              >
+                Invite other device
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div />
         <br />
         <div
           id="sender-connected"
           style={{ display: "none" }}
           sse-swap="connected"
         />
-        <button
-          id="restart-webcam"
-          onclick={`${call("restartWebcam")}();return true;`}
-        >
-          Restart Webcam
-        </button>
         <div id="video-preview-container" />
-        <span id="status" />
-        <div sse-swap="answer">
+        <span id="status">
           <div aria-busy="true">
-            {videoSendActivation
-              ? "Waiting for receiver to provide an answer."
-              : "Click Start to begin sending."}
+            {videoSendActivation ? "" : "Click Start to begin sending."}
           </div>
-        </div>
+        </span>
+        <div sse-swap="answer" />
         Receiver Count:{" "}
         <span sse-swap="receiver-count" hx-swap="innerHTML">
           0
@@ -1170,6 +1186,18 @@ export const App = function () {
     }
   }
 
+  function shareLink(href: string) {
+    log(`shareLink clicked`);
+    try {
+      navigator.share({ url: href });
+    } catch (err: unknown) {
+      debugger;
+      if (err instanceof DOMException) {
+        log(`shareLink: Error: ${err.name} - ${err.message}`);
+      }
+    }
+  }
+
   window.onhashchange = async function () {
     const container = document.querySelector("main.container");
     if (!container) return;
@@ -1193,6 +1221,7 @@ export const App = function () {
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,
     toggleSending: toggleSending,
+    shareLink: shareLink,
     updateStreamAndPreview: updateStreamAndPreview,
     sendSignalToWebserverFinished: sendSignalToWebserverFinished,
     sendClearOfferToWebserver: sendClearOfferToWebserver,

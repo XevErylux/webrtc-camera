@@ -79,3 +79,8 @@ div.sender-main span#status:not(:empty) {
 nav:hover {
   background: rgba(255, 255, 255, 0.1);
 }
+
+nav a#shareLink {
+  padding: var(--form-element-spacing-vertical)
+    var(--form-element-spacing-horizontal);
+}
