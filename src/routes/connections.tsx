@@ -81,6 +81,15 @@ class State {
     const index = listeners.indexOf(listener, 0);
     if (index > -1) {
       listeners.splice(index, 1);
+
+      if (
+        listener.type === "sender" &&
+        listeners.filter((x) => x.type === "sender").length === 0
+      ) {
+        // It was the last sender, clear the encrypted offer now.
+        this.setEncryptedOffer(null);
+      }
+
       return true;
     }
     return false;
