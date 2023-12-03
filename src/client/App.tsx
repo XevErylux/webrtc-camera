@@ -375,7 +375,6 @@ export const App = function () {
           {videoDevices.map((device, index) => (
             <li>
               <a
-                href="#"
                 onclick={`${call("selectVideoDevice")}(${index});return true;`}
               >
                 <span safe>{device.label}</span>
@@ -426,14 +425,13 @@ export const App = function () {
         </ul>
         <ul>
           <li>
-            <a
-              href="#"
+            <button
               role="button"
               id="videoToggleSending"
               onclick={`${call("toggleSending")}();return true;`}
             >
               {videoSendActivation ? "Stop" : "Start"}
-            </a>
+            </button>
           </li>
         </ul>
       </nav>,
