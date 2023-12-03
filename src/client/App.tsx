@@ -60,24 +60,25 @@ function getFromHash(key: string): string | undefined {
   }
 }
 
-function initialVideoDevice(videoDevices: MediaDeviceInfo[]) {
-  const videoInputDeviceConfig = getConfig("videoInputDevice", []);
+function initialDeviceImpl(
+  configKey: "audioInputDevice" | "videoInputDevice",
+  devices: MediaDeviceInfo[],
+) {
+  const inputDeviceConfig = getConfig(configKey, []);
   while (true) {
-    const invalidIndex = videoInputDeviceConfig.findIndex(
+    const invalidIndex = inputDeviceConfig.findIndex(
       (x) => typeof x.label !== "string" || typeof x.autoSelected !== "boolean",
     );
     if (invalidIndex < 0) break;
-    videoInputDeviceConfig.splice(invalidIndex, 1);
+    inputDeviceConfig.splice(invalidIndex, 1);
   }
   const initialSelection = (function () {
-    const prefiltered = videoInputDeviceConfig.flatMap((config, index) => {
-      const videoDevice = videoDevices.find(
-        (videoDevice) => videoDevice.label == config.label,
-      );
-      if (!videoDevice) return [];
-      return [{ index, label: videoDevice.label, auto: config.autoSelected }];
+    const prefiltered = inputDeviceConfig.flatMap((config, index) => {
+      const device = devices.find((device) => device.label == config.label);
+      if (!device) return [];
+      return [{ index, label: device.label, auto: config.autoSelected }];
     });
-    const first: MediaDeviceInfo | undefined = videoDevices[0];
+    const first: MediaDeviceInfo | undefined = devices[0];
     return (
       prefiltered.find((x) => !x.auto) ??
       prefiltered.find((x) => x.auto) ??
@@ -92,56 +93,77 @@ function initialVideoDevice(videoDevices: MediaDeviceInfo[]) {
   })();
   if (
     initialSelection?.auto &&
-    videoInputDeviceConfig.findIndex(
-      (x) => x.label === initialSelection.label,
-    ) === -1
+    inputDeviceConfig.findIndex((x) => x.label === initialSelection.label) ===
+      -1
   ) {
-    videoInputDeviceConfig.push({
+    inputDeviceConfig.push({
       label: initialSelection.label,
       autoSelected: true,
     });
-    setConfig("videoInputDevice", videoInputDeviceConfig);
+    setConfig(configKey, inputDeviceConfig);
   }
   return initialSelection;
 }
 
-function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
-  if (videoDevice) {
-    const videoInputDeviceConfig = getConfig("videoInputDevice", []);
-    const index = videoInputDeviceConfig.findIndex(
-      (x) => x.label === videoDevice.label,
-    );
+function initialAudioDevice(audioDevices: MediaDeviceInfo[]) {
+  return initialDeviceImpl("audioInputDevice", audioDevices);
+}
+
+function initialVideoDevice(videoDevices: MediaDeviceInfo[]) {
+  return initialDeviceImpl("videoInputDevice", videoDevices);
+}
+
+function changeDeviceImpl(
+  configKey: "audioInputDevice" | "videoInputDevice",
+  device: MediaDeviceInfo | undefined,
+) {
+  if (device) {
+    const inputDeviceConfig = getConfig(configKey, []);
+    const index = inputDeviceConfig.findIndex((x) => x.label === device.label);
     if (index >= 0) {
-      videoInputDeviceConfig.splice(index, 1);
+      inputDeviceConfig.splice(index, 1);
     }
-    videoInputDeviceConfig.unshift({
-      label: videoDevice.label,
+    inputDeviceConfig.unshift({
+      label: device.label,
       autoSelected: false,
     });
-    setConfig("videoInputDevice", videoInputDeviceConfig);
+    setConfig(configKey, inputDeviceConfig);
     return index !== 0;
   }
   return false;
 }
 
+function changeAudioDevice(audioDevice: MediaDeviceInfo | undefined) {
+  return changeDeviceImpl("audioInputDevice", audioDevice);
+}
+
+function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
+  return changeDeviceImpl("videoInputDevice", videoDevice);
+}
+
 type MediaStreamInfo = {
   mediaStream: MediaStream;
-  deviceInfo?: MediaDeviceInfo;
+  audioDeviceInfo?: MediaDeviceInfo;
+  videoDeviceInfo?: MediaDeviceInfo;
   wasRotated?: boolean;
 };
 
-let videoMediaStream: MediaStreamInfo | null = null;
+let activeMediaStream: MediaStreamInfo | null = null;
 
 function getShouldRotate() {
   return screen.orientation?.type?.startsWith("portrait") ?? false;
 }
 
 async function getMediaStream(
+  audioDevice: MediaDeviceInfo | null,
   videoDevice: MediaDeviceInfo | null,
 ): Promise<MediaStreamInfo | null> {
-  if (!videoDevice) return null;
-  if (videoMediaStream?.deviceInfo === videoDevice) {
-    return videoMediaStream;
+  if (!audioDevice || !videoDevice) return null;
+  if (
+    activeMediaStream?.audioDeviceInfo === audioDevice &&
+    activeMediaStream?.videoDeviceInfo === videoDevice
+  ) {
+    return activeMediaStream;
   }
 
   /* open the device you want */
@@ -149,7 +171,9 @@ async function getMediaStream(
   let width = 1920;
   let height = 1080;
   const constraints = {
-    audio: true,
+    audio: {
+      deviceId: audioDevice.deviceId,
+    },
     video: {
       deviceId: videoDevice.deviceId,
       aspectRatio: shouldRotate ? height / width : width / height,
@@ -160,7 +184,8 @@ async function getMediaStream(
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return {
     mediaStream: stream,
-    deviceInfo: videoDevice,
+    audioDeviceInfo: audioDevice,
+    videoDeviceInfo: videoDevice,
     wasRotated: shouldRotate,
   };
 }
@@ -329,10 +354,22 @@ export const App = function () {
     );
   }
 
+  let audioDevices: MediaDeviceInfo[] = [];
   let videoDevices: MediaDeviceInfo[] = [];
   let peer: SimplePeer.Instance | null = null;
 
-  function findCurrentMediaDeviceInfo() {
+  function findCurrentAudioMediaDeviceInfo() {
+    const audioInputDeviceConfig = getConfig("audioInputDevice", [])[0];
+    if (!audioInputDeviceConfig) return;
+
+    const audioDevice = audioDevices.find(
+      (x) =>
+        x.kind === "audioinput" && x.label === audioInputDeviceConfig.label,
+    );
+    return audioDevice;
+  }
+
+  function findCurrentVideoMediaDeviceInfo() {
     const videoInputDeviceConfig = getConfig("videoInputDevice", [])[0];
     if (!videoInputDeviceConfig) return;
 
@@ -363,9 +400,61 @@ export const App = function () {
       </>,
     );
 
-    /* get user's permission to muck around with video devices */
+    const audioInputSelection: Children = await (async function () {
+      try {
+        /* get user's permission to muck around with audio devices */
+        const tempStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          customWait(String(<div aria-busy="true" />));
+
+          audioDevices = devices.filter((x) => x.kind === "audioinput");
+          const initialSelection = initialAudioDevice(audioDevices);
+
+          const audioInputSelection: Children = [
+            <details role="list">
+              <summary
+                aria-haspopup="listbox"
+                id="audioInputSelection"
+                data-index={initialSelection?.index}
+                safe
+              >
+                {initialSelection?.label}
+              </summary>
+              <ul role="listbox">
+                {audioDevices.map((device, index) => (
+                  <li>
+                    <a
+                      onclick={`${call(
+                        "selectAudioDevice",
+                      )}(${index});return true;`}
+                    >
+                      <span safe>{device.label}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>,
+          ];
+
+          return audioInputSelection;
+        } finally {
+          /* close the temp stream */
+          const tracks = tempStream.getTracks();
+          if (tracks) for (let t = 0; t < tracks.length; t++) tracks[t].stop();
+        }
+      } catch (err: unknown) {
+        debugger;
+        if (err instanceof DOMException) {
+        }
+      }
+    })();
+
     const videoInputSelection: Children = await (async function () {
       try {
+        /* get user's permission to muck around with video devices */
         const tempStream = await navigator.mediaDevices.getUserMedia({
           video: true,
         });
@@ -487,6 +576,8 @@ export const App = function () {
         sse-connect={`/connections/${connId}/sender-events`}
         hx-on={`htmx:load: ${call("updateStreamAndPreview", false)}()`}
       >
+        <span>Audio Input Device</span>
+        {audioInputSelection}
         <span>Video Input Device</span>
         {videoInputSelection}
         <span>Video Bitrate</span>
@@ -553,7 +644,7 @@ export const App = function () {
   }
 
   async function restartWebcam(): Promise<void> {
-    const stream = videoMediaStream?.mediaStream;
+    const stream = activeMediaStream?.mediaStream;
     if (stream) {
       if (peer?.destroyed === false) {
         peer?.removeStream(stream);
@@ -562,7 +653,7 @@ export const App = function () {
           for (let t = 0; t < tracks.length; t++) tracks[t].stop();
         }
       }
-      videoMediaStream = null;
+      activeMediaStream = null;
       updateStreamAndPreview();
       if (senderOffer) {
         sendSignalToWebserver(senderOffer);
@@ -675,11 +766,11 @@ export const App = function () {
       })();
     }
 
-    if (!videoMediaStream) {
+    if (!activeMediaStream) {
       video.pause();
       video.srcObject = null;
     } else {
-      video.srcObject = videoMediaStream.mediaStream;
+      video.srcObject = activeMediaStream.mediaStream;
       playVideo(video);
     }
   }
@@ -921,7 +1012,7 @@ export const App = function () {
     const videoPeer = new SimplePeer({
       initiator: true,
       trickle: false,
-      stream: videoMediaStream?.mediaStream ?? undefined,
+      stream: activeMediaStream?.mediaStream ?? undefined,
       config: { iceServers: [] },
     });
 
@@ -990,7 +1081,7 @@ export const App = function () {
 
         if (!videoPeer.connected) {
           videoPeer.destroy();
-          videoMediaStream = null;
+          activeMediaStream = null;
           receiverRequestOffer();
         }
       }, 10000);
@@ -1006,13 +1097,13 @@ export const App = function () {
 
     videoPeer.on("stream", function (stream) {
       // Play received stream.
-      videoMediaStream = { mediaStream: stream };
+      activeMediaStream = { mediaStream: stream };
 
       log(`receiverPeer.stream: ${stream}`);
     });
 
     videoPeer.on("close", () => {
-      videoMediaStream = null;
+      activeMediaStream = null;
 
       // updateVideoDevicePreview("receiver");
 
@@ -1047,7 +1138,7 @@ export const App = function () {
 
           if (!videoPeer.connected) {
             videoPeer.destroy();
-            videoMediaStream = null;
+            activeMediaStream = null;
             receiverRequestOffer();
             clearInterval(countdownInterval);
           }
@@ -1084,7 +1175,7 @@ export const App = function () {
       const streams = peer.streams;
 
       for (const stream of peer.streams) {
-        if (shouldBeSending && stream === videoMediaStream?.mediaStream) {
+        if (shouldBeSending && stream === activeMediaStream?.mediaStream) {
           streamAlreadyAdded = true;
           continue;
         }
@@ -1103,12 +1194,12 @@ export const App = function () {
       }
 
       log(
-        `updatePeer(${type}): { videoMediaStream: ${videoMediaStream?.mediaStream?.id}, streamAlreadyAdded: ${streamAlreadyAdded} }`,
+        `updatePeer(${type}): { videoMediaStream: ${activeMediaStream?.mediaStream?.id}, streamAlreadyAdded: ${streamAlreadyAdded} }`,
       );
 
-      if (videoMediaStream && !streamAlreadyAdded) {
-        peer.addStream(videoMediaStream.mediaStream);
-        streams.push(videoMediaStream.mediaStream);
+      if (activeMediaStream && !streamAlreadyAdded) {
+        peer.addStream(activeMediaStream.mediaStream);
+        streams.push(activeMediaStream.mediaStream);
       }
 
       const _pc = getSimplePeerPc(peer);
@@ -1156,19 +1247,23 @@ export const App = function () {
       (async function () {
         try {
           log("updateStreamAndPreview");
-          const deviceInfo = findCurrentMediaDeviceInfo();
+          const audioDeviceInfo = findCurrentAudioMediaDeviceInfo();
+          const videoDeviceInfo = findCurrentVideoMediaDeviceInfo();
 
-          const oldId = videoMediaStream?.mediaStream.id;
+          const oldId = activeMediaStream?.mediaStream.id;
 
           log(
             `screen.orientation: ${screen.orientation.type} - ${screen.orientation.angle}`,
           );
 
-          videoMediaStream =
-            (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
+          activeMediaStream =
+            (audioDeviceInfo &&
+              videoDeviceInfo &&
+              (await getMediaStream(audioDeviceInfo, videoDeviceInfo))) ??
+            null;
 
           log(
-            `updateStreamAndPreview: ${oldId} -> ${videoMediaStream?.mediaStream.id}`,
+            `updateStreamAndPreview: ${oldId} -> ${activeMediaStream?.mediaStream.id}`,
           );
 
           updateVideoDevicePreview("sender");
@@ -1180,6 +1275,18 @@ export const App = function () {
           updateStreamAndPreviewPromise = null;
         }
       })();
+  }
+
+  function selectAudioDevice(index: number) {
+    const audioInputSelection = document.getElementById("audioInputSelection");
+    if (audioInputSelection) {
+      audioInputSelection.dataset.index = `${index}`;
+      audioInputSelection.innerText = audioDevices[index]?.label ?? "";
+
+      if (changeAudioDevice(audioDevices[index] ?? undefined)) {
+        updateStreamAndPreview();
+      }
+    }
   }
 
   function selectVideoDevice(index: number) {
@@ -1323,8 +1430,8 @@ export const App = function () {
   if (screen.orientation && false) {
     // This does not work and creates flickering. So i have disabled it for now.
     function processRotationChanged() {
-      if (videoMediaStream?.wasRotated !== undefined) {
-        if (videoMediaStream.wasRotated ?? false != getShouldRotate()) {
+      if (activeMediaStream?.wasRotated !== undefined) {
+        if (activeMediaStream.wasRotated ?? false != getShouldRotate()) {
           log(
             `Detected screen orientation change. Refresh camera media stream.`,
           );
@@ -1346,6 +1453,7 @@ export const App = function () {
     senderConnectToWebcam: syncify(senderConnectToWebcam),
     restartWebcam: restartWebcam,
     senderEventsConnected: senderEventsConnected,
+    selectAudioDevice: selectAudioDevice,
     selectVideoDevice: selectVideoDevice,
     increaseVideoBitrate: increaseVideoBitrate,
     decreaseVideoBitrate: decreaseVideoBitrate,

@@ -5,6 +5,7 @@ export interface VideoInputDeviceSelection {
 
 export interface Settings {
   secretKey: string;
+  audioInputDevice: VideoInputDeviceSelection[];
   videoInputDevice: VideoInputDeviceSelection[];
   videoBitrate: number;
   videoSendActivation: boolean;
