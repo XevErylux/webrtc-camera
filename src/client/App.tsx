@@ -127,9 +127,14 @@ function changeVideoDevice(videoDevice: MediaDeviceInfo | undefined) {
 type MediaStreamInfo = {
   mediaStream: MediaStream;
   deviceInfo?: MediaDeviceInfo;
+  wasRotated?: boolean;
 };
 
 let videoMediaStream: MediaStreamInfo | null = null;
+
+function getShouldRotate() {
+  return screen.orientation?.type?.startsWith("portrait") ?? false;
+}
 
 async function getMediaStream(
   videoDevice: MediaDeviceInfo | null,
@@ -140,17 +145,24 @@ async function getMediaStream(
   }
 
   /* open the device you want */
+  const shouldRotate = getShouldRotate();
+  let width = 1920;
+  let height = 1080;
   const constraints = {
     audio: true,
     video: {
       deviceId: videoDevice.deviceId,
-      aspectRatio: 1920 / 1080,
-      width: 1920,
-      height: 1080,
+      aspectRatio: shouldRotate ? height / width : width / height,
+      width: shouldRotate ? height : width,
+      height: shouldRotate ? width : height,
     },
   };
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  return { mediaStream: stream, deviceInfo: videoDevice };
+  return {
+    mediaStream: stream,
+    deviceInfo: videoDevice,
+    wasRotated: shouldRotate,
+  };
 }
 
 export const App = function () {
@@ -1148,6 +1160,10 @@ export const App = function () {
 
           const oldId = videoMediaStream?.mediaStream.id;
 
+          log(
+            `screen.orientation: ${screen.orientation.type} - ${screen.orientation.angle}`,
+          );
+
           videoMediaStream =
             (deviceInfo && (await getMediaStream(deviceInfo))) ?? null;
 
@@ -1303,6 +1319,24 @@ export const App = function () {
 
     htmx.process(appInitializer);
   };
+
+  if (screen.orientation && false) {
+    // This does not work and creates flickering. So i have disabled it for now.
+    function processRotationChanged() {
+      if (videoMediaStream?.wasRotated !== undefined) {
+        if (videoMediaStream.wasRotated ?? false != getShouldRotate()) {
+          log(
+            `Detected screen orientation change. Refresh camera media stream.`,
+          );
+          updateStreamAndPreview();
+        }
+      }
+    }
+    screen.orientation.addEventListener("change", (event) => {
+      processRotationChanged();
+    });
+    setInterval(processRotationChanged, 1500);
+  }
 
   return {
     call: call,
