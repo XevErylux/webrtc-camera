@@ -107,3 +107,16 @@ span#nowSendingAnswer.sending {
 span#nowSendingAnswer:not(.sending) {
   color: red;
 }
+
+button.exitBlackDisplayButton {
+  opacity: 0%;
+  transition: opacity 250ms;
+}
+
+button.exitBlackDisplayButton:not(.show) {
+  pointer-events: none;
+}
+
+button.exitBlackDisplayButton.show {
+  opacity: 100%;
+}

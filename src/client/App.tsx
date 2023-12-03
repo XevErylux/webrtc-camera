@@ -505,6 +505,17 @@ export const App = function () {
             </li>
           </ul>
         </nav>
+        <nav>
+          <ul>
+            <li>
+              <button
+                onclick={`${call("turnDisplayBlack")}(this.href);return false;`}
+              >
+                Turn display black
+              </button>
+            </li>
+          </ul>
+        </nav>
         <div />
         <br />
         <div
@@ -1245,6 +1256,43 @@ export const App = function () {
     }
   }
 
+  function turnDisplayBlack() {
+    // It creates a black div, turns it to fullscreen.
+    // If you tap on the black div, it shows for a short time a button.
+    // With this button you can exit the black screen.
+    const video = document.querySelector("video");
+    if (video) {
+      const blackContainer = document.createElement("div");
+      blackContainer.style.width = "0px";
+      blackContainer.style.height = "0px";
+
+      const black = document.createElement("div");
+      black.style.width = "100%";
+      black.style.height = "100%";
+      black.style.background = "black";
+      blackContainer.appendChild(black);
+
+      const button = document.createElement("button");
+      button.onclick = function () {
+        document.exitFullscreen();
+        blackContainer.remove();
+      };
+      button.classList.add("exitBlackDisplayButton");
+      button.style.marginLeft = "auto";
+      button.style.marginRight = "auto";
+      button.innerText = "Exit black display";
+      black.appendChild(button);
+
+      black.onclick = function () {
+        button.classList.add("show");
+        setTimeout(() => button.classList.remove("show"), 1500);
+      };
+
+      video.insertAdjacentElement("afterend", blackContainer);
+      black.requestFullscreen();
+    }
+  }
+
   window.onhashchange = async function () {
     const container = document.querySelector("main.container");
     if (!container) return;
@@ -1269,6 +1317,7 @@ export const App = function () {
     decreaseVideoBitrate: decreaseVideoBitrate,
     toggleSending: toggleSending,
     shareLink: shareLink,
+    turnDisplayBlack: turnDisplayBlack,
     updateStreamAndPreview: updateStreamAndPreview,
     sendSignalToWebserverFinished: sendSignalToWebserverFinished,
     sendClearOfferToWebserver: sendClearOfferToWebserver,
